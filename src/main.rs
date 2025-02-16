@@ -321,15 +321,6 @@ pub fn main() {
         );
     }
     let vlk_chain_fbs = vlk_chain_fbs;
-    let cmd_pool = CommandPool::new(
-        vlk_device.clone(),
-        CommandPoolCreateInfo {
-            flags: CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
-            queue_family_index: vlk_queues[0].as_ref().queue_family_index(),
-            ..Default::default()
-        },
-    )
-    .unwrap();
     let cmd_alloc = StandardCommandBufferAllocator::new(
         vlk_device.clone(),
         StandardCommandBufferAllocatorCreateInfo {
@@ -337,11 +328,6 @@ pub fn main() {
             ..Default::default()
         },
     );
-    // let cmd_buf = cmd_pool.allocate_command_buffers(CommandBufferAllocateInfo {
-    //     level: CommandBufferLevel::Primary,
-    //     command_buffer_count: 1,
-    //     ..Default::default()
-    // }).unwrap().next().unwrap();
 
     event_loop.run(move |event, _, control_flow| {
         control_flow.set_poll();
@@ -384,7 +370,10 @@ pub fn main() {
                         0,
                         SmallVec::from_vec(vec![Viewport {
                             offset: [0f32, 0f32],
-                            extent: [1f32, 1f32],
+                            extent: [
+                                vlk_chain.image_extent()[0] as f32,
+                                vlk_chain.image_extent()[1] as f32,
+                            ],
                             ..Default::default()
                         }]),
                     )
