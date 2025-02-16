@@ -22,7 +22,7 @@ use vulkano::{
             DebugUtilsMessageSeverity, DebugUtilsMessenger, DebugUtilsMessengerCallback,
             DebugUtilsMessengerCreateInfo,
         },
-        Instance, InstanceCreateInfo,
+        Instance, InstanceCreateInfo, InstanceExtensions,
     },
     pipeline::{
         graphics::{
@@ -44,7 +44,10 @@ use vulkano::{
         SubpassDescription,
     },
     shader::{ShaderModule, ShaderModuleCreateInfo},
-    swapchain::{self, ColorSpace, Surface, SurfaceInfo, Swapchain, SwapchainCreateInfo},
+    swapchain::{
+        self, ColorSpace, Surface, SurfaceInfo, Swapchain, SwapchainCreateInfo,
+        SwapchainPresentInfo,
+    },
     sync::GpuFuture,
     VulkanLibrary,
 };
@@ -141,7 +144,10 @@ pub fn main() {
     let vlk_inst = Instance::new(
         vlk_lib,
         InstanceCreateInfo {
-            enabled_extensions: Surface::required_extensions(window.as_ref()),
+            enabled_extensions: InstanceExtensions {
+                ext_debug_utils: true,
+                ..Surface::required_extensions(window.as_ref())
+            },
             ..Default::default()
         },
     )
@@ -182,7 +188,7 @@ pub fn main() {
             })
         }),
     )
-    .ok();
+    .unwrap();
 
     let frag_spirv = load_shader("./shader/frag.spv");
     let vert_spirv = load_shader("./shader/vert.spv");
@@ -347,9 +353,10 @@ pub fn main() {
                 control_flow.set_exit();
             }
             Event::MainEventsCleared => {
-                // previous_frame_end.as_mut().unwrap().cleanup_finished();
                 // Get an image to render to from the swapchain.
-                let next_img = swapchain::acquire_next_image(vlk_chain.clone(), None).unwrap();
+                let next_img =
+                    swapchain::acquire_next_image(vlk_chain.clone(), Some(Duration::from_secs(2)))
+                        .unwrap();
                 // next_img.2.wait(None).unwrap();
                 let index = next_img.0 as usize;
 
@@ -397,8 +404,17 @@ pub fn main() {
                 let cmd_buf = cmd_buf.build().unwrap();
 
                 // Run the commands.
-                let future = cmd_buf.execute(vlk_queues[0].clone()).unwrap();
-                future
+                next_img
+                    .2
+                    .then_execute(vlk_queues[0].clone(), cmd_buf)
+                    .unwrap()
+                    .then_swapchain_present(
+                        vlk_queues[0].clone(),
+                        SwapchainPresentInfo::swapchain_image_index(
+                            vlk_chain.clone(),
+                            index as u32,
+                        ),
+                    )
                     .then_signal_fence_and_flush()
                     .unwrap()
                     .wait(None)
