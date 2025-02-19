@@ -61,6 +61,7 @@ use winit::{
     dpi::{PhysicalSize, Size},
     event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowAttributes},
 };
 
@@ -359,16 +360,16 @@ fn raytrace(ctx: &mut Context) {
     )
     .unwrap();
 
-    // cmd_buf
-    //     .bind_pipeline_compute(ctx.rt_pipeline.clone().unwrap())
-    //     .unwrap()
-    //     .bind_descriptor_sets(
-    //         PipelineBindPoint::Compute,
-    //         ctx.rt_pipeline.as_ref().unwrap().layout().clone(),
-    //         0,
-    //         desc_set,
-    //     )
-    //     .unwrap();
+    cmd_buf
+        .bind_pipeline_compute(ctx.rt_pipeline.clone().unwrap())
+        .unwrap()
+        .bind_descriptor_sets(
+            PipelineBindPoint::Compute,
+            ctx.rt_pipeline.as_ref().unwrap().layout().clone(),
+            0,
+            desc_set,
+        )
+        .unwrap();
 }
 
 struct App {
