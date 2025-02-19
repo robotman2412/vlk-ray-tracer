@@ -1,58 +1,25 @@
 use smallvec::SmallVec;
 use std::{collections::HashSet, ops::Range, sync::Arc};
 use vulkano::{
-    command_buffer::{
-        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
-        AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo,
-    },
-    descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, DescriptorSet, WriteDescriptorSet,
-    },
-    device::{
-        physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, Queue,
-        QueueCreateInfo, QueueFlags,
-    },
-    format::{ClearValue, Format},
-    image::{
-        sampler::{ComponentMapping, ComponentSwizzle},
-        view::{ImageView, ImageViewCreateInfo, ImageViewType},
-        Image, ImageAspects, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageUsage,
-        SampleCount,
-    },
-    instance::{
-        debug::{
-            DebugUtilsMessageSeverity, DebugUtilsMessenger, DebugUtilsMessengerCallback,
-            DebugUtilsMessengerCreateInfo,
-        },
-        Instance, InstanceCreateInfo, InstanceExtensions,
-    },
-    memory::allocator::{AllocationCreateInfo, GenericMemoryAllocator, StandardMemoryAllocator},
+    command_buffer::{allocator::*, *},
+    descriptor_set::{allocator::*, *},
+    device::{physical::*, *},
+    format::*,
+    image::{sampler::*, view::*, *},
+    instance::{debug::*, *},
+    memory::allocator::*,
     pipeline::{
-        compute::ComputePipelineCreateInfo,
+        compute::*,
         graphics::{
-            color_blend::{ColorBlendAttachmentState, ColorBlendState},
-            input_assembly::{InputAssemblyState, PrimitiveTopology},
-            multisample::MultisampleState,
-            rasterization::RasterizationState,
-            subpass::PipelineSubpassType,
-            vertex_input::VertexInputState,
-            viewport::{Scissor, Viewport, ViewportState},
-            GraphicsPipelineCreateInfo,
+            color_blend::*, input_assembly::*, multisample::*, rasterization::*, subpass::*,
+            vertex_input::*, viewport::*, *,
         },
-        layout::{PipelineDescriptorSetLayoutCreateInfo, PipelineLayoutCreateInfo},
-        ComputePipeline, DynamicState, GraphicsPipeline, Pipeline, PipelineBindPoint,
-        PipelineLayout, PipelineShaderStageCreateInfo,
+        layout::*,
+        *,
     },
-    render_pass::{
-        AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp,
-        Framebuffer, FramebufferCreateInfo, RenderPass, RenderPassCreateInfo, Subpass,
-        SubpassDescription,
-    },
-    shader::{ShaderModule, ShaderModuleCreateInfo},
-    swapchain::{
-        self, ColorSpace, Surface, SurfaceInfo, Swapchain, SwapchainCreateInfo,
-        SwapchainPresentInfo,
-    },
+    render_pass::*,
+    shader::*,
+    swapchain::{self, *},
     sync::GpuFuture,
     VulkanLibrary,
 };
@@ -61,7 +28,6 @@ use winit::{
     dpi::{PhysicalSize, Size},
     event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-    keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowAttributes},
 };
 
