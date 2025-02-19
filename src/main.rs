@@ -227,6 +227,18 @@ fn draw(ctx: &mut Context) {
     let next_img = swapchain::acquire_next_image(ctx.swapchain.clone().unwrap(), None).unwrap();
     let index = next_img.0 as usize;
 
+    // Create image attachment for the graphics pipeline to display the ray-traced image.
+    let desc_set = DescriptorSet::new(
+        ctx.desc_alloc.clone().unwrap(),
+        ctx.rt_pipeline.as_ref().unwrap().layout().set_layouts()[0].clone(),
+        [WriteDescriptorSet::image_view(
+            0,
+            ImageView::new_default(ctx.rt_samples.clone().unwrap()).unwrap(),
+        )],
+        [],
+    )
+    .unwrap();
+
     // Construct commands.
     let mut cmd_buf = AutoCommandBufferBuilder::primary(
         ctx.cmd_alloc.clone().unwrap(),
@@ -244,6 +256,13 @@ fn draw(ctx: &mut Context) {
         )
         .unwrap()
         .bind_pipeline_graphics(ctx.gfx_pipeline.clone().unwrap())
+        .unwrap()
+        .bind_descriptor_sets(
+            PipelineBindPoint::Graphics,
+            ctx.gfx_pipeline.as_ref().unwrap().layout().clone(),
+            0,
+            desc_set,
+        )
         .unwrap()
         .set_viewport(
             0,
@@ -336,6 +355,24 @@ fn raytrace(ctx: &mut Context) {
             desc_set,
         )
         .unwrap();
+
+    // The shader must run once per pixel.
+    let groups = [
+        ctx.swapchain.clone().unwrap().image_extent()[0] / 8,
+        ctx.swapchain.clone().unwrap().image_extent()[1] / 8,
+        1,
+    ];
+    unsafe { cmd_buf.dispatch(groups) }.unwrap();
+    let cmd_buf = cmd_buf.build().unwrap();
+
+    // Run the commands.
+    cmd_buf
+        .execute(ctx.queues[0].clone())
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap()
+        .wait(None)
+        .unwrap();
 }
 
 struct App {
@@ -414,8 +451,17 @@ impl ApplicationHandler for App {
         let rt_shader = load_shader(ctx.device.clone(), "./shader/rt.spv").unwrap();
 
         let dynamic_state = [DynamicState::Viewport, DynamicState::Scissor];
-        let gfx_pipeline_layout =
-            PipelineLayout::new(ctx.device.clone(), PipelineLayoutCreateInfo::default()).unwrap();
+        let frag_shader_stage =
+            PipelineShaderStageCreateInfo::new(frag_shader.entry_point("main").unwrap());
+        let vert_shader_stage =
+            PipelineShaderStageCreateInfo::new(vert_shader.entry_point("main").unwrap());
+        let gfx_pipeline_layout = PipelineLayout::new(
+            ctx.device.clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages([&frag_shader_stage])
+                .into_pipeline_layout_create_info(ctx.device.clone())
+                .unwrap(),
+        )
+        .unwrap();
 
         ctx.render_pass = Some(
             RenderPass::new(
@@ -448,10 +494,7 @@ impl ApplicationHandler for App {
         ctx.gfx_pipeline = Some(
             GraphicsPipeline::new(ctx.device.clone(), None, {
                 let mut info = GraphicsPipelineCreateInfo::layout(gfx_pipeline_layout.clone());
-                info.stages = SmallVec::from_vec(vec![
-                    PipelineShaderStageCreateInfo::new(vert_shader.entry_point("main").unwrap()),
-                    PipelineShaderStageCreateInfo::new(frag_shader.entry_point("main").unwrap()),
-                ]);
+                info.stages = SmallVec::from_vec(vec![frag_shader_stage, vert_shader_stage]);
                 info.vertex_input_state = None;
                 info.input_assembly_state = Some(InputAssemblyState {
                     topology: PrimitiveTopology::TriangleList,

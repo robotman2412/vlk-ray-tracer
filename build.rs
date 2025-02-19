@@ -19,4 +19,7 @@ fn main() {
         ])
         .status()
         .expect("Failed to compile vertex shader");
+    println!("cargo:rerun-if-changed=shader/vert.vert");
+    println!("cargo:rerun-if-changed=shader/frag.frag");
+    println!("cargo:rerun-if-changed=shader/rt.glsl");
 }
