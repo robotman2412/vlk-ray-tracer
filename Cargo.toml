@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 smallvec = "1.14.0"
-vulkano = "0.34.1"
-vulkano-shaders = "0.34.0"
-winit = "0.28.7"
+vulkano = "0.35.1"
+vulkano-shaders = "0.35.0"
+winit = "0.30.9"
