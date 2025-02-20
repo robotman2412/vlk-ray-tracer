@@ -1,6 +1,16 @@
+mod scene;
+mod shader_buffer;
+
+use glam::{Mat4, Quat, Vec3};
+use scene::*;
+use shader_buffer::{GpuScene, GpuSkybox};
 use smallvec::SmallVec;
-use std::{collections::HashSet, ops::Range, sync::Arc};
+use std::{collections::HashSet, f32::consts::PI, ops::Range, process::Command, sync::Arc};
 use vulkano::{
+    buffer::{
+        view::{BufferView, BufferViewCreateInfo},
+        *,
+    },
     command_buffer::{allocator::*, *},
     descriptor_set::{allocator::*, *},
     device::{physical::*, *},
@@ -31,7 +41,7 @@ use winit::{
     window::{Window, WindowAttributes},
 };
 
-// Struct that holds all contexts needed for the Vulkan API.
+/// Struct that holds all contexts needed for the Vulkan API.
 struct Context {
     instance: Arc<Instance>,
     device: Arc<Device>,
@@ -47,6 +57,25 @@ struct Context {
     rt_samples: Option<Arc<Image>>,
     desc_alloc: Option<Arc<StandardDescriptorSetAllocator>>,
     cmd_alloc: Option<Arc<StandardCommandBufferAllocator>>,
+}
+
+/// Struct of push constants for the fragment shader.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, BufferContents)]
+struct FragParams {
+    frame_counter: u32,
+}
+
+/// Push constants for the ray tracer.
+#[repr(C)]
+#[derive(Copy, Clone, BufferContents)]
+struct RtParams {
+    /// Matrix representing camera position and orientation.
+    cam_matrix: [f32; 16],
+    /// Tangent of half the vertical field of view.
+    cam_v_fov: f32,
+    /// Current frame counter starting at 1.
+    frame_counter: u32,
 }
 
 /// Load a SPIR-V shader from a file.
@@ -222,7 +251,7 @@ fn recreate_swapchain(ctx: &mut Context, window_size: [u32; 2]) {
 }
 
 /// Draw a single frame.
-fn draw(ctx: &mut Context) {
+fn draw(ctx: &mut Context, frame_counter: u32) {
     // Get an image to render to from the swapchain.
     let next_img = swapchain::acquire_next_image(ctx.swapchain.clone().unwrap(), None).unwrap();
     let index = next_img.0 as usize;
@@ -230,7 +259,7 @@ fn draw(ctx: &mut Context) {
     // Create image attachment for the graphics pipeline to display the ray-traced image.
     let desc_set = DescriptorSet::new(
         ctx.desc_alloc.clone().unwrap(),
-        ctx.rt_pipeline.as_ref().unwrap().layout().set_layouts()[0].clone(),
+        ctx.gfx_pipeline.as_ref().unwrap().layout().set_layouts()[0].clone(),
         [WriteDescriptorSet::image_view(
             0,
             ImageView::new_default(ctx.rt_samples.clone().unwrap()).unwrap(),
@@ -262,6 +291,12 @@ fn draw(ctx: &mut Context) {
             ctx.gfx_pipeline.as_ref().unwrap().layout().clone(),
             0,
             desc_set,
+        )
+        .unwrap()
+        .push_constants(
+            ctx.gfx_pipeline.as_ref().unwrap().layout().clone(),
+            0,
+            FragParams { frame_counter },
         )
         .unwrap()
         .set_viewport(
@@ -326,7 +361,7 @@ fn create_rt_samples(ctx: &mut Context, extent: [u32; 2]) {
 }
 
 /// Tell the GPU to collect a single ray-trace sample.
-fn raytrace(ctx: &mut Context) {
+fn raytrace(ctx: &mut Context, push_const: &RtParams, scene: &GpuScene) {
     let mut cmd_buf = AutoCommandBufferBuilder::primary(
         ctx.cmd_alloc.clone().unwrap(),
         ctx.queues[0].clone().queue_family_index(),
@@ -337,16 +372,34 @@ fn raytrace(ctx: &mut Context) {
     let desc_set = DescriptorSet::new(
         ctx.desc_alloc.clone().unwrap(),
         ctx.rt_pipeline.as_ref().unwrap().layout().set_layouts()[0].clone(),
-        [WriteDescriptorSet::image_view(
-            0,
-            ImageView::new_default(ctx.rt_samples.clone().unwrap()).unwrap(),
-        )],
+        [
+            WriteDescriptorSet::image_view(
+                0,
+                ImageView::new_default(ctx.rt_samples.clone().unwrap()).unwrap(),
+            ),
+            WriteDescriptorSet::buffer_view(
+                1,
+                BufferView::new(scene.objects.clone(), BufferViewCreateInfo::default()).unwrap(),
+            ),
+        ],
         [],
     )
     .unwrap();
 
     cmd_buf
         .bind_pipeline_compute(ctx.rt_pipeline.clone().unwrap())
+        .unwrap()
+        .push_constants(
+            ctx.rt_pipeline.as_ref().unwrap().layout().clone(),
+            0,
+            *push_const,
+        )
+        .unwrap()
+        .push_constants(
+            ctx.rt_pipeline.as_ref().unwrap().layout().clone(),
+            size_of::<RtParams>() as u32,
+            scene.skybox,
+        )
         .unwrap()
         .bind_descriptor_sets(
             PipelineBindPoint::Compute,
@@ -356,10 +409,10 @@ fn raytrace(ctx: &mut Context) {
         )
         .unwrap();
 
-    // The shader must run once per pixel.
+    // The shader must run once per pixel; it is grouped into 8x8 tiles.
     let groups = [
-        ctx.swapchain.clone().unwrap().image_extent()[0] / 8,
-        ctx.swapchain.clone().unwrap().image_extent()[1] / 8,
+        (ctx.swapchain.clone().unwrap().image_extent()[0] + 7) / 8,
+        (ctx.swapchain.clone().unwrap().image_extent()[1] + 7) / 8,
         1,
     ];
     unsafe { cmd_buf.dispatch(groups) }.unwrap();
@@ -378,6 +431,9 @@ fn raytrace(ctx: &mut Context) {
 struct App {
     ctx: Option<Context>,
     window: Option<Arc<Window>>,
+    cpu_scene: Scene,
+    gpu_scene: Option<GpuScene>,
+    rt_params: RtParams,
 }
 
 impl ApplicationHandler for App {
@@ -565,6 +621,7 @@ impl ApplicationHandler for App {
         let window_size = Into::<[u32; 2]>::into(window.inner_size());
         create_swapchain(&mut ctx, window_size);
         create_rt_samples(&mut ctx, window_size);
+        self.gpu_scene = Some(GpuScene::build(ctx.allocator.clone(), &self.cpu_scene).unwrap());
 
         self.ctx = Some(ctx);
     }
@@ -590,14 +647,20 @@ impl ApplicationHandler for App {
                     .image_extent()
                     != Into::<[u32; 2]>::into(self.window.as_ref().unwrap().inner_size())
                 {
-                    recreate_swapchain(
-                        self.ctx.as_mut().unwrap(),
-                        self.window.as_ref().unwrap().inner_size().into(),
-                    );
-                    // TODO: Clear the ray-traced stuff buffer.
+                    let window_size =
+                        Into::<[u32; 2]>::into(self.window.as_ref().unwrap().inner_size());
+                    recreate_swapchain(self.ctx.as_mut().unwrap(), window_size);
+                    create_rt_samples(self.ctx.as_mut().unwrap(), window_size);
+                    self.rt_params.frame_counter = 0;
                 }
-                raytrace(self.ctx.as_mut().unwrap());
-                draw(self.ctx.as_mut().unwrap());
+                self.rt_params.frame_counter += 1;
+                raytrace(
+                    self.ctx.as_mut().unwrap(),
+                    &self.rt_params,
+                    &self.gpu_scene.as_ref().unwrap(),
+                );
+                draw(self.ctx.as_mut().unwrap(), self.rt_params.frame_counter);
+                self.window.as_ref().unwrap().request_redraw();
             }
             _ => (),
         }
@@ -605,9 +668,105 @@ impl ApplicationHandler for App {
 }
 
 pub fn main() {
+    if !Command::new("glslc")
+        .args(&["shader/vert.vert", "-o", "shader/vert.spv"])
+        .status()
+        .expect("Can't run glslc")
+        .success()
+    {
+        panic!("Failed to compile vertex shader");
+    }
+    if !Command::new("glslc")
+        .args(&["shader/frag.frag", "-o", "shader/frag.spv"])
+        .status()
+        .expect("Can't run glslc")
+        .success()
+    {
+        panic!("Failed to compile fragment shader");
+    }
+    if !Command::new("glslc")
+        .args(&[
+            "-fshader-stage=comp",
+            "-std=450core",
+            "shader/rt.glsl",
+            "-o",
+            "shader/rt.spv",
+        ])
+        .status()
+        .expect("Can't run glslc")
+        .success()
+    {
+        panic!("Failed to compile ray tracing shader");
+    }
+    println!("Shaders compiled successfully");
+
+    let scene = Scene {
+        objects: vec![
+            Box::new(Sphere {
+                transform: Transform::from(Mat4::from_scale_rotation_translation(
+                    Vec3::new(0.0, 0.0, 2.0),
+                    Quat::IDENTITY,
+                    Vec3::splat(0.5),
+                )),
+                prop: PhysProp::from_color(Vec3::new(1.0, 0.0, 0.0)),
+            }),
+            Box::new(Sphere {
+                transform: Transform::from(Mat4::from_scale_rotation_translation(
+                    Vec3::new(-1.0, 0.0, 2.0),
+                    Quat::IDENTITY,
+                    Vec3::splat(0.4),
+                )),
+                prop: PhysProp {
+                    color: Vec3::new(0.0, 1.0, 0.0),
+                    opacity: 1.0,
+                    ior: 1.0,
+                    roughness: 0.0,
+                    emission: Vec3::ZERO,
+                },
+            }),
+            Box::new(Plane {
+                transform: Transform::from(Mat4::from_rotation_translation(
+                    Quat::from_rotation_x(PI * 0.5),
+                    Vec3::new(0.0, 0.5, 2.0),
+                )),
+                prop: PhysProp::from_color(Vec3::new(0.5, 0.5, 0.5)),
+            }),
+            Box::new(Sphere {
+                transform: Transform::from(Mat4::from_scale_rotation_translation(
+                    Vec3::new(-0.5, 0.3, 1.5),
+                    Quat::IDENTITY,
+                    Vec3::splat(0.2),
+                )),
+                prop: PhysProp::from_emission(Vec3::new(1.0, 1.0, 0.0), Vec3::new(1.0, 1.0, 0.0)),
+            }),
+            Box::new(Sphere {
+                transform: Transform::from(Mat4::from_scale_rotation_translation(
+                    Vec3::new(-0.3, 0.1, 1.2),
+                    Quat::IDENTITY,
+                    Vec3::splat(0.15),
+                )),
+                prop: PhysProp {
+                    ior: 1.5,
+                    opacity: 0.0,
+                    roughness: 1.0,
+                    color: Vec3::new(1.0, 1.0, 1.0),
+                    emission: Vec3::ZERO,
+                },
+            }),
+        ],
+        skybox: Default::default(),
+    };
+
     let mut app = App {
         ctx: None,
         window: None,
+        rt_params: RtParams {
+            cam_matrix: Mat4::IDENTITY.to_cols_array(),
+            cam_v_fov: 1.0,
+            frame_counter: 0,
+        },
+        cpu_scene: scene,
+        gpu_scene: None,
     };
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
