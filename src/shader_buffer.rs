@@ -1,16 +1,38 @@
 use std::sync::Arc;
 
+use glam::Vec3;
 use vulkano::{
     buffer::{
         AllocateBufferError, Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer,
     },
-    memory::allocator::{AllocationCreateInfo, MemoryAllocator},
+    memory::allocator::{AllocationCreateInfo, MemoryAllocator, MemoryTypeFilter},
     Validated,
 };
 
 use crate::scene::{Object, PhysProp, Scene, Skybox, Transform};
 
+/// On-GPU vec3.
+/// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
+#[repr(C, align(16))]
+#[derive(Copy, Clone, BufferContents)]
+pub struct GpuVec3 {
+    x: f32,
+    y: f32,
+    z: f32,
+}
+
+impl From<Vec3> for GpuVec3 {
+    fn from(value: Vec3) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+            z: value.z,
+        }
+    }
+}
+
 /// On-GPU representation of an object type.
+/// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GpuObjectType {
     Sphere = 0,
@@ -18,6 +40,7 @@ pub enum GpuObjectType {
 }
 
 /// On-GPU representation of an object's transform.
+/// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
 #[repr(C)]
 #[derive(Copy, Clone, BufferContents)]
 pub struct GpuTransform {
@@ -37,14 +60,15 @@ impl From<Transform> for GpuTransform {
 }
 
 /// On-GPU representation of an object's physical properties.
+/// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
 #[repr(C)]
 #[derive(Copy, Clone, BufferContents)]
 pub struct GpuPhysProp {
     pub ior: f32,
     pub opacity: f32,
     pub roughness: f32,
-    pub color: [f32; 3],
-    pub emission: [f32; 3],
+    pub color: GpuVec3,
+    pub emission: GpuVec3,
 }
 unsafe impl Send for GpuPhysProp {}
 unsafe impl Sync for GpuPhysProp {}
@@ -62,6 +86,7 @@ impl From<PhysProp> for GpuPhysProp {
 }
 
 /// On-GPU representation of an object.
+/// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
 #[repr(C)]
 #[derive(Copy, Clone, BufferContents)]
 pub struct GpuObject {
@@ -88,21 +113,22 @@ impl From<&dyn Object> for GpuObject {
 }
 
 /// On-GPU representation of a skybox.
+/// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
 #[repr(C)]
 #[derive(Copy, Clone, BufferContents)]
 pub struct GpuSkybox {
-    /// Ground color.
-    pub ground_color: [f32; 3],
-    /// Horizon color.
-    pub horizon_color: [f32; 3],
-    /// Skybox color.
-    pub skybox_color: [f32; 3],
-    /// Sun color.
-    pub sun_color: [f32; 3],
-    /// Unit vector pointing at the sun.
-    pub sun_direction: [f32; 3],
     /// Dot product threshold for a ray to be pointing at the sun.
     pub sun_radius: f32,
+    /// Ground color.
+    pub ground_color: GpuVec3,
+    /// Horizon color.
+    pub horizon_color: GpuVec3,
+    /// Skybox color.
+    pub skybox_color: GpuVec3,
+    /// Sun color.
+    pub sun_color: GpuVec3,
+    /// Unit vector pointing at the sun.
+    pub sun_direction: GpuVec3,
 }
 unsafe impl Send for GpuSkybox {}
 unsafe impl Sync for GpuSkybox {}
@@ -135,10 +161,13 @@ impl GpuScene {
         let objects = Buffer::from_iter(
             allocator,
             BufferCreateInfo {
-                usage: BufferUsage::UNIFORM_BUFFER,
+                usage: BufferUsage::STORAGE_BUFFER,
                 ..Default::default()
             },
-            AllocationCreateInfo::default(),
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
             scene.objects.iter().map(|object| object.as_ref().into()),
         )?;
         Ok(Self {

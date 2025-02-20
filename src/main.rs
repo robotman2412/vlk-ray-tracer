@@ -69,6 +69,14 @@ struct FragParams {
 /// Push constants for the ray tracer.
 #[repr(C)]
 #[derive(Copy, Clone, BufferContents)]
+struct RtPushConst {
+    params: RtParams,
+    skybox: GpuSkybox,
+}
+
+/// Parameters for the ray tracer.
+#[repr(C)]
+#[derive(Copy, Clone, BufferContents)]
 struct RtParams {
     /// Matrix representing camera position and orientation.
     cam_matrix: [f32; 16],
@@ -361,7 +369,7 @@ fn create_rt_samples(ctx: &mut Context, extent: [u32; 2]) {
 }
 
 /// Tell the GPU to collect a single ray-trace sample.
-fn raytrace(ctx: &mut Context, push_const: &RtParams, scene: &GpuScene) {
+fn raytrace(ctx: &mut Context, params: &RtParams, scene: &GpuScene) {
     let mut cmd_buf = AutoCommandBufferBuilder::primary(
         ctx.cmd_alloc.clone().unwrap(),
         ctx.queues[0].clone().queue_family_index(),
@@ -377,10 +385,7 @@ fn raytrace(ctx: &mut Context, push_const: &RtParams, scene: &GpuScene) {
                 0,
                 ImageView::new_default(ctx.rt_samples.clone().unwrap()).unwrap(),
             ),
-            WriteDescriptorSet::buffer_view(
-                1,
-                BufferView::new(scene.objects.clone(), BufferViewCreateInfo::default()).unwrap(),
-            ),
+            WriteDescriptorSet::buffer(1, scene.objects.clone()),
         ],
         [],
     )
@@ -392,13 +397,10 @@ fn raytrace(ctx: &mut Context, push_const: &RtParams, scene: &GpuScene) {
         .push_constants(
             ctx.rt_pipeline.as_ref().unwrap().layout().clone(),
             0,
-            *push_const,
-        )
-        .unwrap()
-        .push_constants(
-            ctx.rt_pipeline.as_ref().unwrap().layout().clone(),
-            size_of::<RtParams>() as u32,
-            scene.skybox,
+            RtPushConst {
+                params: *params,
+                skybox: scene.skybox,
+            },
         )
         .unwrap()
         .bind_descriptor_sets(
