@@ -656,7 +656,7 @@ impl ApplicationHandler for App {
                     create_rt_samples(self.ctx.as_mut().unwrap(), window_size);
                     self.rt_params.frame_counter = 0;
                 }
-                self.rt_params.frame_counter += 1;
+                self.rt_params.frame_counter = 1;
                 raytrace(
                     self.ctx.as_mut().unwrap(),
                     &self.rt_params,

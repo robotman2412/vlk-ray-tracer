@@ -1,6 +1,6 @@
 #version 450 core
 
-/* ==== TYPE DEFINITIONS ==== */
+/* ==== BUFFER DEFINITIONS ==== */
 
 struct Transform {
   mat4 matrix;
@@ -22,13 +22,15 @@ struct Object {
 };
 
 struct Skybox {
-  float sunRadius;
   vec4 groundColor;
   vec4 horizonColor;
-  vec4 skyboxColor;
+  vec4 skyColor;
   vec4 sunColor;
   vec4 sunDirection;
+  float sunRadius;
 };
+
+/* ==== TYPE DEFINITIONS ==== */
 
 struct Ray {
   vec3 pos;
@@ -38,6 +40,7 @@ struct Ray {
 struct HitInfo {
   vec3 pos;
   vec3 normal;
+  uint obj;
   float dist;
   bool isEntry;
 };
@@ -58,7 +61,7 @@ layout(push_constant, std430) uniform ParamPC {
 
 /* ==== RAY INTERSECTION TESTS ==== */
 
-HitInfo rayTestCircle(Ray ray, int obj) {
+HitInfo rayTestCircle(Ray ray, uint obj) {
   ray.pos = (objects[obj].transform.invMatrix * vec4(ray.pos, 1)).xyz;
   ray.normal =
       normalize((objects[obj].transform.invMatrix * vec4(ray.normal, 0)).xyz);
@@ -67,6 +70,7 @@ HitInfo rayTestCircle(Ray ray, int obj) {
   float raySqrMag = dot(ray.pos, ray.pos);
   float b = a * a - raySqrMag + 1;
   HitInfo hit;
+  hit.obj = obj;
 
   if (b < 0.0) {
     hit.dist = 1.0 / 0.0;
@@ -101,12 +105,13 @@ HitInfo rayTestCircle(Ray ray, int obj) {
   return hit;
 }
 
-HitInfo rayTestPlane(Ray ray, int obj) {
+HitInfo rayTestPlane(Ray ray, uint obj) {
   ray.pos = (objects[obj].transform.invMatrix * vec4(ray.pos, 1)).xyz;
   ray.normal =
       normalize((objects[obj].transform.invMatrix * vec4(ray.normal, 0)).xyz);
 
   HitInfo hit;
+  hit.obj = obj;
   hit.dist = -ray.pos.z / ray.normal.z;
 
   if (abs(ray.normal.z) < 0.00000001 || hit.dist < 0.00000001) {
@@ -127,13 +132,27 @@ HitInfo rayTestPlane(Ray ray, int obj) {
   return hit;
 }
 
-HitInfo rayTest(Ray ray, int obj) {
+HitInfo rayTestObject(Ray ray, uint obj) {
   switch (objects[obj].type) {
   case 0:
     return rayTestCircle(ray, obj);
   case 1:
     return rayTestPlane(ray, obj);
   }
+}
+
+HitInfo rayTest(Ray ray) {
+  HitInfo bestHit;
+  bestHit.dist = 1.0 / 0.0;
+
+  for (uint i = 0; i < objectCount; i++) {
+    HitInfo hit = rayTestObject(ray, i);
+    if (hit.dist < bestHit.dist) {
+      bestHit = hit;
+    }
+  }
+
+  return bestHit;
 }
 
 /* ==== MAIN SHADER CODE ==== */
@@ -146,9 +165,20 @@ void main() {
   }
   vec4 prevColor = frameCounter > 1 ? imageLoad(img, pixelCoords) : vec4(0.0);
 
-  float fWidth = float(imgSize.x);
-  vec4 color =
-      vec4(pixelCoords.x % 64 / 64.0, pixelCoords.y % 64 / 64.0,
-           pixelCoords.x / fWidth, camVFov + objects[0].physProp.color.x);
+  float dist = imgSize.x * 0.5 / camVFov;
+  Ray ray;
+  ray.pos = (camMatrix * vec4(0, 0, 0, 1)).xyz;
+  ray.normal =
+      normalize((camMatrix * vec4(pixelCoords.x, pixelCoords.y, dist, 0)).xyz);
+
+  vec4 color;
+
+  HitInfo bestHit = rayTest(ray);
+  if (isinf(bestHit.dist)) {
+    color = skybox.skyColor;
+  } else {
+    color = objects[bestHit.obj].physProp.color;
+  }
+
   imageStore(img, pixelCoords, prevColor + color);
 }

@@ -1,6 +1,6 @@
-use std::{error::Error, ops::DerefMut, sync::Arc};
+use std::{error::Error, sync::Arc};
 
-use glam::Vec3;
+use glam::{Vec3, Vec4};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     memory::allocator::{AllocationCreateInfo, MemoryAllocator, MemoryTypeFilter},
@@ -10,20 +10,33 @@ use crate::scene::{Object, PhysProp, Scene, Skybox, Transform};
 
 /// On-GPU vec3.
 /// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
-#[repr(C, align(16))]
+#[repr(C)]
 #[derive(Copy, Clone, BufferContents)]
-pub struct GpuVec3 {
-    x: f32,
-    y: f32,
-    z: f32,
+pub struct GpuVec4 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub w: f32,
 }
 
-impl From<Vec3> for GpuVec3 {
+impl From<Vec3> for GpuVec4 {
     fn from(value: Vec3) -> Self {
         Self {
             x: value.x,
             y: value.y,
             z: value.z,
+            w: 0.0,
+        }
+    }
+}
+
+impl From<Vec4> for GpuVec4 {
+    fn from(value: Vec4) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+            z: value.z,
+            w: value.w,
         }
     }
 }
@@ -64,8 +77,8 @@ pub struct GpuPhysProp {
     pub ior: f32,
     pub opacity: f32,
     pub roughness: f32,
-    pub color: GpuVec3,
-    pub emission: GpuVec3,
+    pub color: GpuVec4,
+    pub emission: GpuVec4,
 }
 unsafe impl Send for GpuPhysProp {}
 unsafe impl Sync for GpuPhysProp {}
@@ -114,18 +127,18 @@ impl From<&dyn Object> for GpuObject {
 #[repr(C)]
 #[derive(Copy, Clone, BufferContents)]
 pub struct GpuSkybox {
+    /// Ground color.
+    pub ground_color: GpuVec4,
+    /// Horizon color.
+    pub horizon_color: GpuVec4,
+    /// Skybox color.
+    pub skybox_color: GpuVec4,
+    /// Sun color.
+    pub sun_color: GpuVec4,
+    /// Unit vector pointing at the sun.
+    pub sun_direction: GpuVec4,
     /// Dot product threshold for a ray to be pointing at the sun.
     pub sun_radius: f32,
-    /// Ground color.
-    pub ground_color: GpuVec3,
-    /// Horizon color.
-    pub horizon_color: GpuVec3,
-    /// Skybox color.
-    pub skybox_color: GpuVec3,
-    /// Sun color.
-    pub sun_color: GpuVec3,
-    /// Unit vector pointing at the sun.
-    pub sun_direction: GpuVec3,
 }
 unsafe impl Send for GpuSkybox {}
 unsafe impl Sync for GpuSkybox {}
@@ -148,7 +161,7 @@ impl From<Skybox> for GpuSkybox {
 pub struct GpuScene {
     pub objects: Subbuffer<[GpuObject]>,
     pub object_count: u32,
-    pub skybox: Subbuffer<GpuSkybox>,
+    pub skybox: Subbuffer<[GpuSkybox]>,
 }
 
 impl GpuScene {
@@ -168,21 +181,18 @@ impl GpuScene {
             },
             scene.objects.iter().map(|object| object.as_ref().into()),
         )?;
-        let skybox = Buffer::new_sized::<GpuSkybox>(
+        let skybox = Buffer::from_iter(
             allocator,
             BufferCreateInfo {
                 usage: BufferUsage::STORAGE_BUFFER,
                 ..Default::default()
             },
             AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::HOST_RANDOM_ACCESS,
+                memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
+            [GpuSkybox::from(scene.skybox.clone())].into_iter(),
         )?;
-        {
-            let mut guard = skybox.write()?;
-            *guard.deref_mut() = scene.skybox.into();
-        }
         Ok(Self {
             objects,
             object_count: scene.objects.len() as u32,
