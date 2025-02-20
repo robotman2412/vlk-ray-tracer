@@ -156,21 +156,29 @@ impl GpuScene {
         allocator: Arc<dyn MemoryAllocator>,
         scene: &Scene,
     ) -> Result<Self, Box<dyn Error>> {
-        let buf_info = BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        };
-        let alloc_info = AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        };
         let objects = Buffer::from_iter(
             allocator.clone(),
-            buf_info.clone(),
-            alloc_info.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
             scene.objects.iter().map(|object| object.as_ref().into()),
         )?;
-        let skybox = Buffer::new_sized::<GpuSkybox>(allocator, buf_info, alloc_info)?;
+        let skybox = Buffer::new_sized::<GpuSkybox>(
+            allocator,
+            BufferCreateInfo {
+                usage: BufferUsage::STORAGE_BUFFER,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::HOST_RANDOM_ACCESS,
+                ..Default::default()
+            },
+        )?;
         {
             let mut guard = skybox.write()?;
             *guard.deref_mut() = scene.skybox.into();
