@@ -224,7 +224,7 @@ impl Object for Plane {
             return None;
         }
         let distance = -ray.pos[2] / ray.normal[2];
-        if distance <= 0.00000001 {
+        if distance < 0.00000001 {
             return None;
         }
         let pos = ray.pos + ray.normal * distance;

@@ -150,6 +150,7 @@ impl From<Skybox> for GpuSkybox {
 /// Unlike the others, this is not a single bufferable object, but a collection of buffers.
 pub struct GpuScene {
     pub objects: Subbuffer<[GpuObject]>,
+    pub objectCount: u32,
     pub skybox: GpuSkybox,
 }
 
@@ -172,6 +173,7 @@ impl GpuScene {
         )?;
         Ok(Self {
             objects,
+            objectCount: scene.objects.len() as u32,
             skybox: scene.skybox.into(),
         })
     }
