@@ -1,12 +1,9 @@
-use std::sync::Arc;
+use std::{error::Error, ops::DerefMut, sync::Arc};
 
 use glam::Vec3;
 use vulkano::{
-    buffer::{
-        AllocateBufferError, Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer,
-    },
+    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     memory::allocator::{AllocationCreateInfo, MemoryAllocator, MemoryTypeFilter},
-    Validated,
 };
 
 use crate::scene::{Object, PhysProp, Scene, Skybox, Transform};
@@ -150,31 +147,38 @@ impl From<Skybox> for GpuSkybox {
 /// Unlike the others, this is not a single bufferable object, but a collection of buffers.
 pub struct GpuScene {
     pub objects: Subbuffer<[GpuObject]>,
-    pub objectCount: u32,
-    pub skybox: GpuSkybox,
+    pub object_count: u32,
+    pub skybox: Subbuffer<GpuSkybox>,
 }
 
 impl GpuScene {
     pub fn build(
         allocator: Arc<dyn MemoryAllocator>,
         scene: &Scene,
-    ) -> Result<Self, Validated<AllocateBufferError>> {
+    ) -> Result<Self, Box<dyn Error>> {
+        let buf_info = BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        };
+        let alloc_info = AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        };
         let objects = Buffer::from_iter(
-            allocator,
-            BufferCreateInfo {
-                usage: BufferUsage::STORAGE_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
+            allocator.clone(),
+            buf_info.clone(),
+            alloc_info.clone(),
             scene.objects.iter().map(|object| object.as_ref().into()),
         )?;
+        let skybox = Buffer::new_sized::<GpuSkybox>(allocator, buf_info, alloc_info)?;
+        {
+            let mut guard = skybox.write()?;
+            *guard.deref_mut() = scene.skybox.into();
+        }
         Ok(Self {
             objects,
-            objectCount: scene.objects.len() as u32,
-            skybox: scene.skybox.into(),
+            object_count: scene.objects.len() as u32,
+            skybox,
         })
     }
 }

@@ -47,12 +47,13 @@ struct HitInfo {
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(binding = 0, rgba32f) uniform image2D img;
-layout(binding = 1, std430) buffer objectBuffer { Object objects[]; };
+layout(binding = 1, std430) buffer ObjectBuffer { Object objects[]; };
+layout(binding = 2, std430) buffer SkyboxBuffer { Skybox skybox; };
 layout(push_constant, std430) uniform ParamPC {
   mat4 camMatrix;
   float camVFov;
   uint frameCounter;
-  Skybox skybox;
+  uint objectCount;
 };
 
 /* ==== RAY INTERSECTION TESTS ==== */

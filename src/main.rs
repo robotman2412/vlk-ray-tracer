@@ -71,7 +71,7 @@ struct FragParams {
 #[derive(Copy, Clone, BufferContents)]
 struct RtPushConst {
     params: RtParams,
-    skybox: GpuSkybox,
+    object_count: u32,
 }
 
 /// Parameters for the ray tracer.
@@ -386,6 +386,7 @@ fn raytrace(ctx: &mut Context, params: &RtParams, scene: &GpuScene) {
                 ImageView::new_default(ctx.rt_samples.clone().unwrap()).unwrap(),
             ),
             WriteDescriptorSet::buffer(1, scene.objects.clone()),
+            WriteDescriptorSet::buffer(2, scene.skybox.clone()),
         ],
         [],
     )
@@ -399,7 +400,7 @@ fn raytrace(ctx: &mut Context, params: &RtParams, scene: &GpuScene) {
             0,
             RtPushConst {
                 params: *params,
-                skybox: scene.skybox,
+                object_count: scene.object_count,
             },
         )
         .unwrap()
