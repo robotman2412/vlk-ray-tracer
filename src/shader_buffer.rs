@@ -10,8 +10,8 @@ use crate::scene::{Object, PhysProp, Scene, Skybox, Transform};
 
 /// On-GPU vec3.
 /// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
-#[repr(C)]
-#[derive(Copy, Clone, BufferContents)]
+#[repr(C, align(16))]
+#[derive(Debug, Copy, Clone, BufferContents)]
 pub struct GpuVec4 {
     pub x: f32,
     pub y: f32,
@@ -52,7 +52,7 @@ pub enum GpuObjectType {
 /// On-GPU representation of an object's transform.
 /// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
 #[repr(C)]
-#[derive(Copy, Clone, BufferContents)]
+#[derive(Debug, Copy, Clone, BufferContents)]
 pub struct GpuTransform {
     pub matrix: [f32; 16],
     pub inv_matrix: [f32; 16],
@@ -72,7 +72,7 @@ impl From<Transform> for GpuTransform {
 /// On-GPU representation of an object's physical properties.
 /// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
 #[repr(C)]
-#[derive(Copy, Clone, BufferContents)]
+#[derive(Debug, Copy, Clone, BufferContents)]
 pub struct GpuPhysProp {
     pub ior: f32,
     pub opacity: f32,
@@ -98,7 +98,7 @@ impl From<PhysProp> for GpuPhysProp {
 /// On-GPU representation of an object.
 /// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
 #[repr(C)]
-#[derive(Copy, Clone, BufferContents)]
+#[derive(Debug, Copy, Clone, BufferContents)]
 pub struct GpuObject {
     pub transform: GpuTransform,
     pub prop: GpuPhysProp,
@@ -125,7 +125,7 @@ impl From<&dyn Object> for GpuObject {
 /// On-GPU representation of a skybox.
 /// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
 #[repr(C)]
-#[derive(Copy, Clone, BufferContents)]
+#[derive(Debug, Copy, Clone, BufferContents)]
 pub struct GpuSkybox {
     /// Ground color.
     pub ground_color: GpuVec4,

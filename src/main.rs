@@ -625,6 +625,10 @@ impl ApplicationHandler for App {
         create_swapchain(&mut ctx, window_size);
         create_rt_samples(&mut ctx, window_size);
         self.gpu_scene = Some(GpuScene::build(ctx.allocator.clone(), &self.cpu_scene).unwrap());
+        println!(
+            "{:#?}",
+            self.gpu_scene.as_ref().unwrap().objects.read().as_ref()
+        );
 
         self.ctx = Some(ctx);
     }
@@ -707,17 +711,17 @@ pub fn main() {
         objects: vec![
             Box::new(Sphere {
                 transform: Transform::from(Mat4::from_scale_rotation_translation(
-                    Vec3::new(0.0, 0.0, 2.0),
-                    Quat::IDENTITY,
                     Vec3::splat(0.5),
+                    Quat::IDENTITY,
+                    Vec3::new(0.0, 0.0, 2.0),
                 )),
                 prop: PhysProp::from_color(Vec3::new(1.0, 0.0, 0.0)),
             }),
             Box::new(Sphere {
                 transform: Transform::from(Mat4::from_scale_rotation_translation(
-                    Vec3::new(-1.0, 0.0, 2.0),
-                    Quat::IDENTITY,
                     Vec3::splat(0.4),
+                    Quat::IDENTITY,
+                    Vec3::new(-1.0, 0.0, 2.0),
                 )),
                 prop: PhysProp {
                     color: Vec3::new(0.0, 1.0, 0.0),
@@ -736,17 +740,17 @@ pub fn main() {
             }),
             Box::new(Sphere {
                 transform: Transform::from(Mat4::from_scale_rotation_translation(
-                    Vec3::new(-0.5, 0.3, 1.5),
-                    Quat::IDENTITY,
                     Vec3::splat(0.2),
+                    Quat::IDENTITY,
+                    Vec3::new(-0.5, 0.3, 1.5),
                 )),
                 prop: PhysProp::from_emission(Vec3::new(1.0, 1.0, 0.0), Vec3::new(1.0, 1.0, 0.0)),
             }),
             Box::new(Sphere {
                 transform: Transform::from(Mat4::from_scale_rotation_translation(
-                    Vec3::new(-0.3, 0.1, 1.2),
-                    Quat::IDENTITY,
                     Vec3::splat(0.15),
+                    Quat::IDENTITY,
+                    Vec3::new(-0.3, 0.1, 1.2),
                 )),
                 prop: PhysProp {
                     ior: 1.5,
@@ -760,12 +764,30 @@ pub fn main() {
         skybox: Default::default(),
     };
 
+    let scene = Scene {
+        objects: vec![Box::new(Sphere {
+            transform: Transform::from(Mat4::from_scale_rotation_translation(
+                Vec3::ONE,
+                Quat::IDENTITY,
+                Vec3::new(0.0, 0.0, 4.0),
+            )),
+            prop: PhysProp {
+                ior: 1.5,
+                opacity: 0.0,
+                roughness: 1.0,
+                color: Vec3::new(1.0, 1.0, 1.0),
+                emission: Vec3::ZERO,
+            },
+        })],
+        skybox: Default::default(),
+    };
+
     let mut app = App {
         ctx: None,
         window: None,
         rt_params: RtParams {
             cam_matrix: Mat4::IDENTITY.to_cols_array(),
-            cam_v_fov: 1.0,
+            cam_v_fov: (PI * 0.25).tan(),
             frame_counter: 0,
         },
         cpu_scene: scene,

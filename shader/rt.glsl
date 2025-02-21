@@ -11,6 +11,7 @@ struct PhysProp {
   float ior;
   float opacity;
   float roughness;
+  uint _padding0;
   vec4 color;
   vec4 emission;
 };
@@ -19,6 +20,9 @@ struct Object {
   Transform transform;
   PhysProp physProp;
   uint type;
+  uint _padding0;
+  uint _padding1;
+  uint _padding2;
 };
 
 struct Skybox {
@@ -61,7 +65,7 @@ layout(push_constant, std430) uniform ParamPC {
 
 /* ==== RAY INTERSECTION TESTS ==== */
 
-HitInfo rayTestCircle(Ray ray, uint obj) {
+HitInfo rayTestSphere(Ray ray, uint obj) {
   ray.pos = (objects[obj].transform.invMatrix * vec4(ray.pos, 1)).xyz;
   ray.normal =
       normalize((objects[obj].transform.invMatrix * vec4(ray.normal, 0)).xyz);
@@ -135,7 +139,7 @@ HitInfo rayTestPlane(Ray ray, uint obj) {
 HitInfo rayTestObject(Ray ray, uint obj) {
   switch (objects[obj].type) {
   case 0:
-    return rayTestCircle(ray, obj);
+    return rayTestSphere(ray, obj);
   case 1:
     return rayTestPlane(ray, obj);
   }
@@ -165,11 +169,12 @@ void main() {
   }
   vec4 prevColor = frameCounter > 1 ? imageLoad(img, pixelCoords) : vec4(0.0);
 
-  float dist = imgSize.x * 0.5 / camVFov;
+  float dist = float(imgSize.x) * 0.5 / camVFov;
   Ray ray;
   ray.pos = (camMatrix * vec4(0, 0, 0, 1)).xyz;
-  ray.normal =
-      normalize((camMatrix * vec4(pixelCoords.x, pixelCoords.y, dist, 0)).xyz);
+  ray.normal = normalize(
+      (camMatrix * (vec4(pixelCoords, dist, 0) - 0.5 * vec4(imgSize, 0, 0)))
+          .xyz);
 
   vec4 color;
 
@@ -177,7 +182,7 @@ void main() {
   if (isinf(bestHit.dist)) {
     color = skybox.skyColor;
   } else {
-    color = objects[bestHit.obj].physProp.color;
+    color = vec4(objects[bestHit.obj].transform.matrix[0]);
   }
 
   imageStore(img, pixelCoords, prevColor + color);
