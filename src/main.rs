@@ -84,6 +84,10 @@ struct RtParams {
     cam_v_fov: f32,
     /// Current frame counter starting at 1.
     frame_counter: u32,
+    /// Max. number of reflection bounces.
+    max_reflect: u32,
+    /// Max. number of refractions.
+    max_refract: u32,
 }
 
 /// Load a SPIR-V shader from a file.
@@ -156,10 +160,7 @@ fn select_device(
                 queue_family_index,
                 ..Default::default()
             }],
-            enabled_extensions: DeviceExtensions {
-                khr_swapchain: true,
-                ..Default::default()
-            },
+            enabled_extensions: device_extensions,
             ..Default::default()
         },
     )
@@ -656,14 +657,14 @@ impl ApplicationHandler for App {
                     create_rt_samples(self.ctx.as_mut().unwrap(), window_size);
                     self.rt_params.frame_counter = 0;
                 }
-                self.rt_params.frame_counter = 1;
+                self.rt_params.frame_counter += 1;
                 raytrace(
                     self.ctx.as_mut().unwrap(),
                     &self.rt_params,
                     &self.gpu_scene.as_ref().unwrap(),
                 );
                 draw(self.ctx.as_mut().unwrap(), self.rt_params.frame_counter);
-                self.window.as_ref().unwrap().request_redraw();
+                // self.window.as_ref().unwrap().request_redraw();
             }
             _ => (),
         }
@@ -768,6 +769,8 @@ pub fn main() {
             cam_matrix: Mat4::IDENTITY.to_cols_array(),
             cam_v_fov: (PI * 0.25).tan(),
             frame_counter: 0,
+            max_reflect: 16,
+            max_refract: 16,
         },
         cpu_scene: scene,
         gpu_scene: None,
