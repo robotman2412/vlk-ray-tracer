@@ -66,6 +66,7 @@ layout(push_constant, std430) uniform ParamPC {
 /* ==== RAY INTERSECTION TESTS ==== */
 
 HitInfo rayTestSphere(Ray ray, uint obj) {
+  Ray globalRay = ray;
   ray.pos = (objects[obj].transform.invMatrix * vec4(ray.pos, 1)).xyz;
   ray.normal =
       normalize((objects[obj].transform.invMatrix * vec4(ray.normal, 0)).xyz);
@@ -105,11 +106,13 @@ HitInfo rayTestSphere(Ray ray, uint obj) {
   hit.pos = (objects[obj].transform.matrix * vec4(pos, 1)).xyz;
   hit.normal = normalize((objects[obj].transform.matrix * vec4(pos, 0)).xyz);
   hit.isEntry = raySqrMag > 1;
+  hit.dist = length(globalRay.pos - hit.pos);
 
   return hit;
 }
 
 HitInfo rayTestPlane(Ray ray, uint obj) {
+  Ray globalRay = ray;
   ray.pos = (objects[obj].transform.invMatrix * vec4(ray.pos, 1)).xyz;
   ray.normal =
       normalize((objects[obj].transform.invMatrix * vec4(ray.normal, 0)).xyz);
@@ -122,16 +125,17 @@ HitInfo rayTestPlane(Ray ray, uint obj) {
     hit.dist = 1.0 / 0.0;
     return hit;
   }
-  vec3 pos = ray.pos + ray.pos * hit.dist;
+  vec3 pos = ray.pos + ray.normal * hit.dist;
   if (abs(pos.x) > 1 || abs(pos.y) > 1) {
     hit.dist = 1.0 / 0.0;
     return hit;
   }
 
-  hit.pos = (objects[obj].transform.matrix * vec4(ray.pos, 1)).xyz;
+  hit.pos = (objects[obj].transform.matrix * vec4(pos, 1)).xyz;
   hit.normal = normalize(
       (objects[obj].transform.matrix * vec4(0, 0, sign(ray.pos.z), 1)).xyz);
   hit.isEntry = true;
+  hit.dist = length(globalRay.pos - hit.pos);
 
   return hit;
 }
@@ -169,7 +173,7 @@ void main() {
   }
   vec4 prevColor = frameCounter > 1 ? imageLoad(img, pixelCoords) : vec4(0.0);
 
-  float dist = float(imgSize.x) * 0.5 / camVFov;
+  float dist = float(imgSize.y) * 0.5 / camVFov;
   Ray ray;
   ray.pos = (camMatrix * vec4(0, 0, 0, 1)).xyz;
   ray.normal = normalize(
@@ -182,7 +186,7 @@ void main() {
   if (isinf(bestHit.dist)) {
     color = skybox.skyColor;
   } else {
-    color = vec4(objects[bestHit.obj].transform.matrix[0]);
+    color = vec4(objects[bestHit.obj].physProp.color);
   }
 
   imageStore(img, pixelCoords, prevColor + color);

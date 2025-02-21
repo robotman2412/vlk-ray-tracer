@@ -625,10 +625,6 @@ impl ApplicationHandler for App {
         create_swapchain(&mut ctx, window_size);
         create_rt_samples(&mut ctx, window_size);
         self.gpu_scene = Some(GpuScene::build(ctx.allocator.clone(), &self.cpu_scene).unwrap());
-        println!(
-            "{:#?}",
-            self.gpu_scene.as_ref().unwrap().objects.read().as_ref()
-        );
 
         self.ctx = Some(ctx);
     }
@@ -736,6 +732,7 @@ pub fn main() {
                     Quat::from_rotation_x(PI * 0.5),
                     Vec3::new(0.0, 0.5, 2.0),
                 )),
+                // transform: Transform::from(Mat4::from_translation(Vec3::new(0.0, 0.0, 4.0))),
                 prop: PhysProp::from_color(Vec3::new(0.5, 0.5, 0.5)),
             }),
             Box::new(Sphere {
@@ -761,24 +758,6 @@ pub fn main() {
                 },
             }),
         ],
-        skybox: Default::default(),
-    };
-
-    let scene = Scene {
-        objects: vec![Box::new(Sphere {
-            transform: Transform::from(Mat4::from_scale_rotation_translation(
-                Vec3::ONE,
-                Quat::IDENTITY,
-                Vec3::new(0.0, 0.0, 4.0),
-            )),
-            prop: PhysProp {
-                ior: 1.5,
-                opacity: 0.0,
-                roughness: 1.0,
-                color: Vec3::new(1.0, 1.0, 1.0),
-                emission: Vec3::ZERO,
-            },
-        })],
         skybox: Default::default(),
     };
 
