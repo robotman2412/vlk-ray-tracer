@@ -38,6 +38,7 @@ use winit::{
     dpi::{PhysicalSize, Size},
     event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    keyboard::{Key, KeyCode},
     window::{Window, WindowAttributes},
 };
 
@@ -84,10 +85,8 @@ struct RtParams {
     cam_v_fov: f32,
     /// Current frame counter starting at 1.
     frame_counter: u32,
-    /// Max. number of reflection bounces.
-    max_reflect: u32,
-    /// Max. number of refractions.
-    max_refract: u32,
+    /// Max. number of bounces.
+    max_bounce: u32,
 }
 
 /// Load a SPIR-V shader from a file.
@@ -438,6 +437,7 @@ struct App {
     cpu_scene: Scene,
     gpu_scene: Option<GpuScene>,
     rt_params: RtParams,
+    running: bool,
 }
 
 impl ApplicationHandler for App {
@@ -451,7 +451,7 @@ impl ApplicationHandler for App {
                 .create_window(
                     WindowAttributes::default()
                         .with_title("GPU Ray Tracer")
-                        .with_inner_size(Size::Physical(PhysicalSize::new(400, 300))),
+                        .with_inner_size(Size::Physical(PhysicalSize::new(800, 600))),
                 )
                 .unwrap(),
         );
@@ -640,6 +640,20 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if event.physical_key == KeyCode::Space && event.state.is_pressed() && !event.repeat
+                {
+                    self.running = !self.running;
+                    self.window.as_ref().unwrap().set_title(if self.running {
+                        "GPU Ray Tracer"
+                    } else {
+                        "GPU Ray Tracer (paused)"
+                    });
+                    if self.running {
+                        self.window.as_ref().unwrap().request_redraw();
+                    }
+                }
+            }
             WindowEvent::RedrawRequested => {
                 if self
                     .ctx
@@ -664,7 +678,9 @@ impl ApplicationHandler for App {
                     &self.gpu_scene.as_ref().unwrap(),
                 );
                 draw(self.ctx.as_mut().unwrap(), self.rt_params.frame_counter);
-                // self.window.as_ref().unwrap().request_redraw();
+                if self.running {
+                    self.window.as_ref().unwrap().request_redraw();
+                }
             }
             _ => (),
         }
@@ -753,7 +769,7 @@ pub fn main() {
                 prop: PhysProp {
                     ior: 1.5,
                     opacity: 0.0,
-                    roughness: 1.0,
+                    roughness: 0.0,
                     color: Vec3::new(1.0, 1.0, 1.0),
                     emission: Vec3::ZERO,
                 },
@@ -769,11 +785,11 @@ pub fn main() {
             cam_matrix: Mat4::IDENTITY.to_cols_array(),
             cam_v_fov: (PI * 0.25).tan(),
             frame_counter: 0,
-            max_reflect: 16,
-            max_refract: 16,
+            max_bounce: 16,
         },
         cpu_scene: scene,
         gpu_scene: None,
+        running: true,
     };
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);

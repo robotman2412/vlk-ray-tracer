@@ -280,12 +280,12 @@ impl Skybox {
 impl Default for Skybox {
     fn default() -> Self {
         Self {
-            ground_color: Vec3::new(0.3, 0.15, 0.075),
-            horizon_color: Vec3::new(0.7, 0.9, 1.0),
-            skybox_color: Vec3::new(0.0, 0.7, 0.8),
-            sun_color: Vec3::new(2.0, 2.0, 1.4),
+            ground_color: Vec3::new(0.15, 0.075, 0.0375),
+            horizon_color: Vec3::new(0.35, 0.45, 0.5),
+            skybox_color: Vec3::new(0.0, 0.35, 0.4),
+            sun_color: Vec3::splat(16.0),
             sun_direction: Vec3::new(0.577350269, -0.577350269, -0.577350269),
-            sun_radius: 0.8,
+            sun_radius: 0.9,
         }
     }
 }

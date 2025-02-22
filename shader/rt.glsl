@@ -60,9 +60,8 @@ layout(push_constant, std430) uniform ParamPC {
   mat4 camMatrix;
   float camVFov;
   uint frameCounter;
+  uint maxBounce;
   uint objectCount;
-  uint maxReflect;
-  uint maxRefract;
 };
 
 /* ==== RAY INTERSECTION TESTS ==== */
@@ -84,8 +83,8 @@ HitInfo rayTestSphere(Ray ray, uint obj) {
     return hit;
   }
 
-  if (b < 0.00000001) {
-    if (a > 0.00000001) {
+  if (b < 0.00001) {
+    if (a > 0.000001) {
       hit.dist = a;
     } else {
       hit.dist = 1.0 / 0.0;
@@ -94,9 +93,9 @@ HitInfo rayTestSphere(Ray ray, uint obj) {
   } else {
     float dist0 = a + sqrt(b);
     float dist1 = a - sqrt(b);
-    if (dist0 < dist1 && dist0 > 0.00000001) {
+    if ((dist1 <= 0.00001 || dist0 < dist1) && dist0 > 0.00001) {
       hit.dist = dist0;
-    } else if (dist1 > 0.00000001) {
+    } else if (dist1 > 0.00001) {
       hit.dist = dist1;
     } else {
       hit.dist = 1.0 / 0.0;
@@ -123,7 +122,7 @@ HitInfo rayTestPlane(Ray ray, uint obj) {
   hit.obj = obj;
   hit.dist = -ray.pos.z / ray.normal.z;
 
-  if (abs(ray.normal.z) < 0.00000001 || hit.dist < 0.00000001) {
+  if (abs(ray.normal.z) < 0.00001 || hit.dist < 0.00001) {
     hit.dist = 1.0 / 0.0;
     return hit;
   }
@@ -202,60 +201,47 @@ vec3 randHemisphereVec(inout uint rngState, vec3 relativeTo) {
   }
 }
 
-vec4 rayTrace(Ray ray, uint seed) {
-  uint reflectLeft = maxReflect;
-  uint refractLeft = maxRefract;
-
-  // Mix up the RNG a tiny bit.
-  uint rngState = seed;
-  splitmix32(rngState);
-  splitmix32(rngState);
+vec4 rayTrace(Ray ray, inout uint rngState) {
+  uint bounceLeft = maxBounce;
 
   vec4 colMask = vec4(1);
   vec4 color = vec4(0);
 
-  while (true) {
+  while (bounceLeft > 0 && colMask.x + colMask.y + colMask.z > 0.001) {
     HitInfo hit = rayTest(ray);
+    bounceLeft--;
 
     if (!isinf(hit.dist)) {
       color += colMask * objects[hit.obj].physProp.emission;
       colMask *= objects[hit.obj].physProp.color;
+      bool doReflect = true;
+      vec3 normal = hit.isEntry ? hit.normal : -hit.normal;
 
-      if (!hit.isEntry ||
-          randFloat(rngState) >= objects[hit.obj].physProp.opacity) {
-        // Do refraction.
-        if (refractLeft == 0)
-          return color;
-        refractLeft--;
-
+      if (randFloat(rngState) >= objects[hit.obj].physProp.opacity) {
         // Get normal and IORs.
         float ratio;
-        vec3 normal;
         if (hit.isEntry) {
           ratio = 1.0 / objects[hit.obj].physProp.ior;
-          normal = -hit.normal;
         } else {
           ratio = objects[hit.obj].physProp.ior;
-          normal = hit.normal;
         }
 
         // Determine refraction angle.
-        float inDot = clamp(dot(-ray.normal, normal), -1, 1);
-        float det = max(0, 1 - ratio * ratio * (1 - inDot * inDot));
-        ray.pos = hit.pos;
-        ray.normal = ray.normal * ratio + normal * (sqrt(det) - ratio * inDot);
-        ray.normal = normalize(ray.normal);
-
-      } else {
+        float inDot = clamp(-dot(ray.normal, normal), -1, 1);
+        float det = 1 - ratio * ratio * (1 - inDot * inDot);
+        if (det >= 0) {
+          ray.pos = hit.pos;
+          ray.normal =
+              ray.normal * ratio + normal * (ratio * inDot - sqrt(det));
+          ray.normal = normalize(ray.normal);
+          doReflect = false;
+        }
+      }
+      if (doReflect) {
         // Do reflection.
-        if (reflectLeft == 0)
-          return color;
-        reflectLeft--;
-
-        vec3 diffNormal =
-            normalize(randHemisphereVec(rngState, hit.normal) + hit.normal);
-        vec3 specNormal = normalize(
-            ray.normal - 2 * dot(ray.normal, hit.normal) * hit.normal);
+        vec3 diffNormal = normalize(randUnitVec(rngState) + normal);
+        vec3 specNormal =
+            normalize(ray.normal - 2 * dot(ray.normal, hit.normal) * normal);
 
         ray.pos = hit.pos;
         ray.normal = specNormal + (diffNormal - specNormal) *
@@ -264,7 +250,7 @@ vec4 rayTrace(Ray ray, uint seed) {
       }
     } else {
       // No hit; sample skybox color.
-      float coeff = clamp(ray.normal.y * 3, -1, 1);
+      float coeff = clamp(ray.normal.y * 4, -1, 1);
       vec4 base;
       if (coeff >= 0) {
         base = skybox.horizonColor +
@@ -285,6 +271,8 @@ vec4 rayTrace(Ray ray, uint seed) {
       return color;
     }
   }
+
+  return color;
 }
 
 void main() {
@@ -295,17 +283,22 @@ void main() {
   }
   vec4 prevColor = frameCounter > 1 ? imageLoad(img, pixelCoords) : vec4(0.0);
 
+  // Create primitive RNG seed.
+  uint rngState =
+      frameCounter * (1 + pixelCoords.x + pixelCoords.y * imgSize.x);
+  splitmix32(rngState);
+  splitmix32(rngState);
+
   float dist = float(imgSize.y) * 0.5 / camVFov;
   Ray ray;
   ray.pos = (camMatrix * vec4(0, 0, 0, 1)).xyz;
+  vec2 randOff = vec2(randFloat(rngState), randFloat(rngState)) - 0.5;
+  vec2 pixelCoordsf = vec2(pixelCoords) + randOff;
   ray.normal = normalize(
-      (camMatrix * (vec4(pixelCoords, dist, 0) - 0.5 * vec4(imgSize, 0, 0)))
+      (camMatrix * (vec4(pixelCoordsf, dist, 0) - 0.5 * vec4(imgSize, 0, 0)))
           .xyz);
 
-  // Create primitive RNG seed.
-  uint seed = frameCounter * (1 + pixelCoords.x + pixelCoords.y * imgSize.x);
-
-  vec4 color = vec4(rayTrace(ray, seed));
+  vec4 color = vec4(rayTrace(ray, rngState));
 
   // The fourth channel is for debug info and is not accumulated.
   prevColor.w = 0;
