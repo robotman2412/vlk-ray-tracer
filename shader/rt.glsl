@@ -20,9 +20,19 @@ struct Object {
   Transform transform;
   PhysProp physProp;
   uint type;
-  uint _padding0;
+  uint mesh;
   uint _padding1;
   uint _padding2;
+};
+
+struct Mesh {
+  uint numTris;
+  uint numVerts;
+  uint triOffset;
+  uint vertOffset;
+  uint normOffset;
+  uint vcolOffset;
+  uint uvOffset;
 };
 
 struct Skybox {
@@ -41,11 +51,21 @@ struct Ray {
   vec3 normal;
 };
 
+struct TriHitInfo {
+  // Global triangle number
+  uint tri;
+  // Barycentric co-ordinates.
+  float u, v;
+  // Hit distance from ray origin.
+  float dist;
+};
+
 struct HitInfo {
   vec3 pos;
+  float dist;
   vec3 normal;
   uint obj;
-  float dist;
+  PhysProp physProp;
   bool isEntry;
 };
 
@@ -54,8 +74,14 @@ struct HitInfo {
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(binding = 0, rgba32f) uniform image2D img;
-layout(binding = 1, std430) buffer ObjectBuffer { Object objects[]; };
-layout(binding = 2, std430) buffer SkyboxBuffer { Skybox skybox; };
+layout(binding = 1, std430) buffer SkyboxBuffer { Skybox skybox; };
+layout(binding = 2, std430) buffer ObjectBuffer { Object objects[]; };
+layout(binding = 3, std430) buffer MeshBuffer { Mesh meshes[]; };
+layout(binding = 4, std430) buffer TriBuffer { uint tris[]; };
+layout(binding = 5, std430) buffer VertBuffer { vec3 verts[]; };
+layout(binding = 6, std430) buffer NormBuffer { vec3 norms[]; };
+layout(binding = 7, std430) buffer VcolBuffer { vec4 vcols[]; };
+// layout(binding = 8, std430) buffer UvBuffer { vec2 uvs[]; };
 layout(push_constant, std430) uniform ParamPC {
   mat4 camMatrix;
   float camVFov;
@@ -77,6 +103,7 @@ HitInfo rayTestSphere(Ray ray, uint obj) {
   float b = a * a - raySqrMag + 1;
   HitInfo hit;
   hit.obj = obj;
+  hit.physProp = objects[obj].physProp;
 
   if (b < 0.0) {
     hit.dist = 1.0 / 0.0;
@@ -120,6 +147,7 @@ HitInfo rayTestPlane(Ray ray, uint obj) {
 
   HitInfo hit;
   hit.obj = obj;
+  hit.physProp = objects[obj].physProp;
   hit.dist = -ray.pos.z / ray.normal.z;
 
   if (abs(ray.normal.z) < 0.00001 || hit.dist < 0.00001) {
@@ -141,12 +169,110 @@ HitInfo rayTestPlane(Ray ray, uint obj) {
   return hit;
 }
 
+TriHitInfo rayTestTri(Ray ray, uint tri) {
+  TriHitInfo hit;
+  hit.tri = tri;
+  hit.dist = 1.0 / 0.0;
+
+  vec3 a = verts[tris[tri]];
+  vec3 b = verts[tris[tri + 1]];
+  vec3 c = verts[tris[tri + 2]];
+
+  vec3 ab = b - a;
+  vec3 ac = c - a;
+  vec3 pvec = cross(ray.normal, ac);
+  float det = dot(ab, pvec);
+
+  if (abs(det) < 0.00001) {
+    return hit;
+  }
+
+  float invDet = 1 / det;
+  vec3 tvec = ray.pos - a;
+  float u = invDet * dot(tvec, pvec);
+  if (u < 0 || u > 1) {
+    return hit;
+  }
+
+  vec3 qvec = cross(tvec, ab);
+  float v = invDet * dot(ray.normal, qvec);
+  if (v < 0 || u + v > 1) {
+    return hit;
+  }
+
+  hit.dist = invDet * dot(ac, qvec);
+  if (hit.dist > 0.0001) {
+    hit.u = u;
+    hit.v = v;
+    return hit;
+  } else {
+    hit.dist = 1.0 / 0.0;
+    return hit;
+  }
+}
+
+HitInfo rayTestMesh(Ray ray, uint obj) {
+  Ray globalRay = ray;
+  ray.pos = (objects[obj].transform.invMatrix * vec4(ray.pos, 1)).xyz;
+  ray.normal =
+      normalize((objects[obj].transform.invMatrix * vec4(ray.normal, 0)).xyz);
+
+  Mesh mesh = meshes[objects[obj].mesh];
+
+  TriHitInfo bestHit;
+  bestHit.dist = 1.0 / 0.0;
+  for (uint i = 0; i < mesh.numTris; i++) {
+    TriHitInfo hit = rayTestTri(ray, mesh.triOffset + i * 3);
+    if (hit.dist < bestHit.dist) {
+      bestHit = hit;
+    }
+  }
+
+  HitInfo hit;
+  if (isinf(bestHit.dist)) {
+    hit.dist = 1.0 / 0.0;
+    return hit;
+  }
+  hit.pos = ray.pos + hit.dist * ray.normal;
+  hit.physProp = objects[obj].physProp;
+
+  uint a = tris[bestHit.tri];
+  uint b = tris[bestHit.tri + 1];
+  uint c = tris[bestHit.tri + 2];
+
+  if (mesh.normOffset == uint(-1)) {
+    hit.normal = normalize(cross(verts[c] - verts[a], verts[b] - verts[a]));
+  } else {
+    hit.normal = (1 - bestHit.u - bestHit.v) * norms[a];
+    hit.normal += bestHit.u * norms[b];
+    hit.normal += bestHit.v * norms[c];
+    // Normalization happens later; doing it here is redundant.
+  }
+  hit.isEntry = dot(ray.normal, hit.normal) > 0;
+
+  if (mesh.vcolOffset != uint(-1)) {
+    vec4 vcol;
+    vcol = (1 - bestHit.u - bestHit.v) * vcols[a];
+    vcol += bestHit.u * vcols[b];
+    vcol += bestHit.v * vcols[c];
+    hit.physProp.color *= vcol;
+  }
+
+  hit.pos = (objects[obj].transform.matrix * vec4(hit.pos, 1)).xyz;
+  hit.normal = (objects[obj].transform.matrix * vec4(hit.normal, 0)).xyz;
+  hit.normal = normalize(hit.normal);
+  hit.dist = length(globalRay.pos - hit.pos);
+  return hit;
+}
+
 HitInfo rayTestObject(Ray ray, uint obj) {
   switch (objects[obj].type) {
   case 0:
     return rayTestSphere(ray, obj);
   case 1:
     return rayTestPlane(ray, obj);
+  case 2:
+    return rayTestMesh(ray, obj);
   }
 }
 

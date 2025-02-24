@@ -1,12 +1,12 @@
-use std::{error::Error, sync::Arc};
+use std::{error::Error, fmt::Debug, ops::Deref, sync::Arc};
 
-use glam::{Vec3, Vec4};
+use glam::{Vec2, Vec3, Vec4};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     memory::allocator::{AllocationCreateInfo, MemoryAllocator, MemoryTypeFilter},
 };
 
-use crate::scene::{Object, PhysProp, Scene, Skybox, Transform};
+use crate::scene::*;
 
 /// On-GPU vec3.
 /// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
@@ -41,12 +41,31 @@ impl From<Vec4> for GpuVec4 {
     }
 }
 
+/// On-GPU Vec2.
+/// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
+#[repr(C, align(8))]
+#[derive(Debug, Copy, Clone, BufferContents)]
+pub struct GpuVec2 {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl From<Vec2> for GpuVec2 {
+    fn from(value: Vec2) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+        }
+    }
+}
+
 /// On-GPU representation of an object type.
 /// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GpuObjectType {
     Sphere = 0,
     Plane,
+    Mesh,
 }
 
 /// On-GPU representation of an object's transform.
@@ -102,25 +121,11 @@ impl From<PhysProp> for GpuPhysProp {
 pub struct GpuObject {
     pub transform: GpuTransform,
     pub prop: GpuPhysProp,
-    pub shader_type: u32,
+    pub model_type: u32,
+    pub model_index: u32,
 }
 unsafe impl Send for GpuObject {}
 unsafe impl Sync for GpuObject {}
-
-impl From<&(dyn Object + Send + Sync)> for GpuObject {
-    fn from(value: &(dyn Object + Send + Sync)) -> Self {
-        From::<&dyn Object>::from(value)
-    }
-}
-impl From<&dyn Object> for GpuObject {
-    fn from(value: &dyn Object) -> Self {
-        Self {
-            transform: value.transform().clone().into(),
-            prop: value.phys_prop().clone().into(),
-            shader_type: value.shader_type() as u32,
-        }
-    }
-}
 
 /// On-GPU representation of a skybox.
 /// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
@@ -156,47 +161,234 @@ impl From<Skybox> for GpuSkybox {
     }
 }
 
+/// On-GPU representation of a model.
+/// WARNING: The GPU types can be smaller than their alignment, so the most-aligned field must always come last.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, BufferContents)]
+pub struct GpuMesh {
+    /// Number of triangles in the model.
+    num_tris: u32,
+    /// Number of vertices in the model.
+    num_verts: u32,
+    /// Triangles' offset into the triangle buffer.
+    /// Triangles are a uvec3 representing the vertex index.
+    tri_offset: u32,
+    /// Vertices' offset into the vertex buffer.
+    /// Vertices are a vec3 representing object space position.
+    vert_offset: u32,
+    /// Normals' offset into the normal buffer, or -1 if none.
+    /// Normals are a vec3 representing the vertex normal in object space.
+    norm_offset: u32,
+    /// Vertex colors' offset into the vertex color buffer, or -1 if none.
+    /// Vertex colors are a vec3.
+    vcol_offset: u32,
+    /// UV coordinates' offset into the UVs buffer, or -1 if none.
+    /// UV coordinates are a vec2.
+    uv_offset: u32,
+}
+
 /// On-GPU representation of a scene.
 /// Unlike the others, this is not a single bufferable object, but a collection of buffers.
 pub struct GpuScene {
     pub objects: Subbuffer<[GpuObject]>,
     pub object_count: u32,
+    pub meshes: Subbuffer<[GpuMesh]>,
+    pub tris: Subbuffer<[u32]>,
+    pub verts: Subbuffer<[GpuVec4]>,
+    pub norms: Subbuffer<[GpuVec4]>,
+    pub vcols: Subbuffer<[GpuVec4]>,
+    pub uvs: Subbuffer<[GpuVec2]>,
     pub skybox: Subbuffer<[GpuSkybox]>,
 }
 
+impl Debug for GpuScene {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GpuScene")
+            .field("objects", &self.objects.read().unwrap().deref())
+            .field("object_count", &self.object_count)
+            .field("meshes", &self.meshes.read().unwrap().deref())
+            .field("tris", &self.tris.read().unwrap().deref())
+            .field("verts", &self.verts.read().unwrap().deref())
+            .field("norms", &self.norms.read().unwrap().deref())
+            .field("vcols", &self.vcols.read().unwrap().deref())
+            .field("uvs", &self.uvs.read().unwrap().deref())
+            .field("skybox", &self.skybox.read().unwrap().deref())
+            .finish()
+    }
+}
+
+#[derive(Default)]
+struct NodeBuildCtx {
+    objects: Vec<GpuObject>,
+    meshes: Vec<GpuMesh>,
+    tris: Vec<u32>,
+    verts: Vec<GpuVec4>,
+    norms: Vec<GpuVec4>,
+    vcols: Vec<GpuVec4>,
+    uvs: Vec<GpuVec2>,
+}
+
 impl GpuScene {
+    fn build_mesh(out: &mut NodeBuildCtx, mesh: &Mesh) {
+        let mut gpu_mesh = GpuMesh {
+            num_tris: mesh.tris.len() as u32 / 3,
+            num_verts: mesh.verts.len() as u32,
+            tri_offset: out.tris.len() as u32,
+            vert_offset: out.verts.len() as u32,
+            norm_offset: u32::MAX,
+            vcol_offset: u32::MAX,
+            uv_offset: u32::MAX,
+        };
+        out.tris.extend(mesh.tris.iter().map(|f| *f as u32));
+        out.verts
+            .extend(mesh.verts.iter().map(|f| GpuVec4::from(*f)));
+        if let Some(normals) = mesh.normals.as_ref() {
+            gpu_mesh.norm_offset = out.norms.len() as u32;
+            out.norms.extend(normals.iter().map(|f| GpuVec4::from(*f)));
+        }
+        if let Some(vcols) = mesh.vert_cols.as_ref() {
+            gpu_mesh.vcol_offset = out.vcols.len() as u32;
+            out.vcols.extend(vcols.iter().map(|f| GpuVec4::from(*f)));
+        }
+        if let Some(uvs) = mesh.vert_uv.as_ref() {
+            gpu_mesh.uv_offset = out.uvs.len() as u32;
+            out.uvs.extend(uvs.iter().map(|f| GpuVec2::from(*f)));
+        }
+        out.meshes.push(gpu_mesh);
+    }
+
+    fn build_node(out: &mut NodeBuildCtx, transform: Transform, node: &Node) -> GpuObject {
+        let (model_type, model_index) = match &node.model {
+            Model::None => unreachable!(),
+            Model::Sphere => (GpuObjectType::Sphere, 0),
+            Model::Plane => (GpuObjectType::Plane, 0),
+            Model::Mesh(mesh) => {
+                let index = out.meshes.len();
+                Self::build_mesh(out, mesh);
+                (GpuObjectType::Mesh, index)
+            }
+        };
+        GpuObject {
+            transform: (node.transform * transform).into(),
+            prop: node.prop.into(),
+            model_type: model_type as u32,
+            model_index: model_index as u32,
+        }
+    }
+
+    fn build_nodes(out: &mut NodeBuildCtx, transform: Transform, nodes: &[Node]) {
+        for node in nodes {
+            if node.model != Model::None {
+                let tmp = Self::build_node(out, transform, node);
+                out.objects.push(tmp);
+            }
+            Self::build_nodes(out, transform * node.transform, &node.children);
+        }
+    }
+
     pub fn build(
         allocator: Arc<dyn MemoryAllocator>,
         scene: &Scene,
     ) -> Result<Self, Box<dyn Error>> {
+        let mut ctx = NodeBuildCtx::default();
+        Self::build_nodes(&mut ctx, Default::default(), &scene.nodes);
+
+        let buf_info = BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        };
+        let alloc_info = AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::HOST_RANDOM_ACCESS,
+            ..Default::default()
+        };
+
+        // TODO: Vulkano doesn't support bindless yet.
+        if ctx.meshes.is_empty() {
+            ctx.meshes.push(GpuMesh {
+                num_tris: 0,
+                num_verts: 0,
+                tri_offset: 0,
+                vert_offset: 0,
+                norm_offset: 0,
+                vcol_offset: 0,
+                uv_offset: 0,
+            });
+        }
+        if ctx.tris.is_empty() {
+            ctx.tris.push(0);
+        }
+        if ctx.verts.is_empty() {
+            ctx.verts.push(Vec4::splat(0.0).into());
+        }
+        if ctx.norms.is_empty() {
+            ctx.norms.push(Vec4::splat(0.0).into());
+        }
+        if ctx.vcols.is_empty() {
+            ctx.vcols.push(Vec4::splat(0.0).into());
+        }
+        if ctx.uvs.is_empty() {
+            ctx.uvs.push(Vec2::splat(0.0).into());
+        }
+
         let objects = Buffer::from_iter(
             allocator.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::STORAGE_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            scene.objects.iter().map(|object| object.as_ref().into()),
+            buf_info.clone(),
+            alloc_info.clone(),
+            ctx.objects.into_iter(),
+        )?;
+        let meshes = Buffer::from_iter(
+            allocator.clone(),
+            buf_info.clone(),
+            alloc_info.clone(),
+            ctx.meshes.into_iter(),
+        )?;
+        let tris = Buffer::from_iter(
+            allocator.clone(),
+            buf_info.clone(),
+            alloc_info.clone(),
+            ctx.tris.into_iter(),
+        )?;
+        let verts = Buffer::from_iter(
+            allocator.clone(),
+            buf_info.clone(),
+            alloc_info.clone(),
+            ctx.verts.into_iter(),
+        )?;
+        let norms = Buffer::from_iter(
+            allocator.clone(),
+            buf_info.clone(),
+            alloc_info.clone(),
+            ctx.norms.into_iter(),
+        )?;
+        let vcols = Buffer::from_iter(
+            allocator.clone(),
+            buf_info.clone(),
+            alloc_info.clone(),
+            ctx.vcols.into_iter(),
+        )?;
+        let uvs = Buffer::from_iter(
+            allocator.clone(),
+            buf_info.clone(),
+            alloc_info.clone(),
+            ctx.uvs.into_iter(),
         )?;
         let skybox = Buffer::from_iter(
             allocator,
-            BufferCreateInfo {
-                usage: BufferUsage::STORAGE_BUFFER,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            [GpuSkybox::from(scene.skybox.clone())].into_iter(),
+            buf_info.clone(),
+            alloc_info.clone(),
+            [GpuSkybox::from(scene.skybox)].into_iter(),
         )?;
+
         Ok(Self {
             objects,
-            object_count: scene.objects.len() as u32,
+            object_count: scene.nodes.len() as u32,
             skybox,
+            meshes,
+            tris,
+            verts,
+            norms,
+            vcols,
+            uvs,
         })
     }
 }

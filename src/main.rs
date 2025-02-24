@@ -1,16 +1,15 @@
+#![allow(dead_code)]
+
 mod scene;
 mod shader_buffer;
 
 use glam::{Mat4, Quat, Vec3};
 use scene::*;
-use shader_buffer::{GpuScene, GpuSkybox};
+use shader_buffer::GpuScene;
 use smallvec::SmallVec;
 use std::{collections::HashSet, f32::consts::PI, ops::Range, process::Command, sync::Arc};
 use vulkano::{
-    buffer::{
-        view::{BufferView, BufferViewCreateInfo},
-        *,
-    },
+    buffer::*,
     command_buffer::{allocator::*, *},
     descriptor_set::{allocator::*, *},
     device::{physical::*, *},
@@ -38,7 +37,7 @@ use winit::{
     dpi::{PhysicalSize, Size},
     event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-    keyboard::{Key, KeyCode},
+    keyboard::KeyCode,
     window::{Window, WindowAttributes},
 };
 
@@ -385,8 +384,14 @@ fn raytrace(ctx: &mut Context, params: &RtParams, scene: &GpuScene) {
                 0,
                 ImageView::new_default(ctx.rt_samples.clone().unwrap()).unwrap(),
             ),
-            WriteDescriptorSet::buffer(1, scene.objects.clone()),
-            WriteDescriptorSet::buffer(2, scene.skybox.clone()),
+            WriteDescriptorSet::buffer(1, scene.skybox.clone()),
+            WriteDescriptorSet::buffer(2, scene.objects.clone()),
+            WriteDescriptorSet::buffer(3, scene.meshes.clone()),
+            WriteDescriptorSet::buffer(4, scene.tris.clone()),
+            WriteDescriptorSet::buffer(5, scene.verts.clone()),
+            WriteDescriptorSet::buffer(6, scene.norms.clone()),
+            WriteDescriptorSet::buffer(7, scene.vcols.clone()),
+            // WriteDescriptorSet::buffer(8, scene.uvs.clone()),
         ],
         [],
     )
@@ -626,6 +631,7 @@ impl ApplicationHandler for App {
         create_swapchain(&mut ctx, window_size);
         create_rt_samples(&mut ctx, window_size);
         self.gpu_scene = Some(GpuScene::build(ctx.allocator.clone(), &self.cpu_scene).unwrap());
+        println!("{:#?}", self.gpu_scene);
 
         self.ctx = Some(ctx);
     }
@@ -721,16 +727,19 @@ pub fn main() {
     println!("Shaders compiled successfully");
 
     let scene = Scene {
-        objects: vec![
-            Box::new(Sphere {
+        nodes: vec![
+            Node {
+                model: Model::Sphere,
                 transform: Transform::from(Mat4::from_scale_rotation_translation(
                     Vec3::splat(0.5),
                     Quat::IDENTITY,
                     Vec3::new(0.0, 0.0, 2.0),
                 )),
                 prop: PhysProp::from_color(Vec3::new(1.0, 0.0, 0.0)),
-            }),
-            Box::new(Sphere {
+                ..Default::default()
+            },
+            Node {
+                model: Model::Sphere,
                 transform: Transform::from(Mat4::from_scale_rotation_translation(
                     Vec3::splat(0.4),
                     Quat::IDENTITY,
@@ -743,24 +752,29 @@ pub fn main() {
                     roughness: 0.0,
                     emission: Vec3::ZERO,
                 },
-            }),
-            Box::new(Plane {
+                ..Default::default()
+            },
+            Node {
+                model: Model::Plane,
                 transform: Transform::from(Mat4::from_rotation_translation(
                     Quat::from_rotation_x(PI * 0.5),
                     Vec3::new(0.0, 0.5, 2.0),
                 )),
-                // transform: Transform::from(Mat4::from_translation(Vec3::new(0.0, 0.0, 4.0))),
                 prop: PhysProp::from_color(Vec3::new(0.5, 0.5, 0.5)),
-            }),
-            Box::new(Sphere {
+                ..Default::default()
+            },
+            Node {
+                model: Model::Sphere,
                 transform: Transform::from(Mat4::from_scale_rotation_translation(
                     Vec3::splat(0.2),
                     Quat::IDENTITY,
                     Vec3::new(-0.5, 0.3, 1.5),
                 )),
                 prop: PhysProp::from_emission(Vec3::new(1.0, 1.0, 0.0), Vec3::new(1.0, 1.0, 0.0)),
-            }),
-            Box::new(Sphere {
+                ..Default::default()
+            },
+            Node {
+                model: Model::Sphere,
                 transform: Transform::from(Mat4::from_scale_rotation_translation(
                     Vec3::splat(0.15),
                     Quat::IDENTITY,
@@ -773,7 +787,30 @@ pub fn main() {
                     color: Vec3::new(1.0, 1.0, 1.0),
                     emission: Vec3::ZERO,
                 },
-            }),
+                ..Default::default()
+            },
+            Node {
+                transform: Mat4::IDENTITY.into(),
+                model: Model::Mesh(Arc::new(Mesh {
+                    tris: vec![0, 1, 2],
+                    verts: vec![
+                        Vec3::new(0.0, 0.0, 0.3),
+                        Vec3::new(0.5, 0.1, 0.3),
+                        Vec3::new(0.1, 0.5, 0.3),
+                    ],
+                    normals: None,
+                    vert_cols: None,
+                    vert_uv: None,
+                })),
+                prop: PhysProp {
+                    ior: 1.5,
+                    opacity: 1.0,
+                    roughness: 1.0,
+                    color: Vec3::new(1.0, 1.0, 1.0),
+                    emission: Vec3::ZERO,
+                },
+                ..Default::default()
+            },
         ],
         skybox: Default::default(),
     };

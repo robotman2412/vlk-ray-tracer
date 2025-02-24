@@ -19,4 +19,5 @@ void main() {
   // outColor = baseColor / (baseColor + vec4(1));
   // outColor = log(baseColor + vec4(1));
   outColor = vec4(aces(baseColor.xyz), 0);
+  // outColor = baseColor;
 }
