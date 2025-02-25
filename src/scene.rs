@@ -1,9 +1,7 @@
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Mul;
-use std::path::Path;
 use std::sync::Arc;
 
 use glam::Mat4;
@@ -208,12 +206,28 @@ impl Mesh {
             }
         }
 
+        let mut verts: Vec<_> = verts.into_iter().collect();
+        verts.sort_by(|a, b| a.index.cmp(&b.index));
+
         Self {
             tris,
-            verts: todo!(),
-            normals: todo!(),
-            vert_cols: todo!(),
-            vert_uv: todo!(),
+            verts: verts
+                .iter()
+                .map(|f| object.data.position[f.pos].into())
+                .collect(),
+            normals: use_norm.then(|| {
+                verts
+                    .iter()
+                    .map(|f| object.data.normal[f.normal.unwrap()].into())
+                    .collect()
+            }),
+            vert_cols: None,
+            vert_uv: use_uv.then(|| {
+                verts
+                    .iter()
+                    .map(|f| object.data.texture[f.uv.unwrap()].into())
+                    .collect()
+            }),
         }
     }
 }
