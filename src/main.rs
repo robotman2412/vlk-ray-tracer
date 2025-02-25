@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+mod mesh;
 mod scene;
 mod shader_buffer;
 
@@ -393,6 +394,7 @@ fn raytrace(ctx: &mut Context, params: &RtParams, scene: &GpuScene) {
             WriteDescriptorSet::buffer(6, scene.norms.clone()),
             WriteDescriptorSet::buffer(7, scene.vcols.clone()),
             // WriteDescriptorSet::buffer(8, scene.uvs.clone()),
+            WriteDescriptorSet::buffer(9, scene.bvh.clone()),
         ],
         [],
     )

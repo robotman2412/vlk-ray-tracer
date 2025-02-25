@@ -1,15 +1,10 @@
-use std::collections::HashSet;
-use std::hash::Hash;
-use std::hash::Hasher;
 use std::ops::Mul;
 use std::sync::Arc;
 
-use glam::Mat4;
-use glam::Vec2;
-use glam::Vec3;
-use obj::Group;
-use obj::IndexTuple;
+use glam::{Mat4, Vec3};
 use obj::Obj;
+
+use crate::mesh::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Transform {
@@ -131,104 +126,6 @@ impl PhysProp {
             roughness: 1.0,
             color,
             emission,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Mesh {
-    /// Triangle vertices.
-    pub tris: Vec<usize>,
-    /// Vertex positions.
-    pub verts: Vec<Vec3>,
-    /// Vertex normals.
-    pub normals: Option<Vec<Vec3>>,
-    /// Vertex colors.
-    pub vert_cols: Option<Vec<Vec3>>,
-    /// Vertex UV coordinates.
-    pub vert_uv: Option<Vec<Vec2>>,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ObjPolyCorner {
-    pos: usize,
-    normal: Option<usize>,
-    uv: Option<usize>,
-    index: usize,
-}
-
-impl PartialEq for ObjPolyCorner {
-    fn eq(&self, other: &Self) -> bool {
-        self.pos == other.pos && self.normal == other.normal && self.uv == other.uv
-    }
-}
-
-impl Hash for ObjPolyCorner {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.pos.hash(state);
-        self.normal.hash(state);
-        self.uv.hash(state);
-    }
-}
-impl Eq for ObjPolyCorner {}
-
-impl Mesh {
-    fn from_group(object: &Obj, group: &Group) -> Self {
-        let mut tris = Vec::<usize>::new();
-        let mut verts = HashSet::<ObjPolyCorner>::new();
-        let mut index = 0usize;
-        let mut use_norm = false;
-        let mut use_uv = false;
-
-        let mut dedup_corner = |corner: &IndexTuple| {
-            let corner = ObjPolyCorner {
-                pos: corner.0,
-                uv: corner.1,
-                normal: corner.2,
-                index,
-            };
-            use_norm |= corner.normal.is_some();
-            use_uv |= corner.uv.is_some();
-            let existing = verts.get(&corner).map(|f| f.index);
-            existing.unwrap_or_else(|| {
-                // Lazy-eval insertion so the indices stay correct.
-                verts.insert(corner);
-                index += 1;
-                index - 1
-            })
-        };
-
-        for poly in &group.polys {
-            if poly.0.len() != 3 {
-                continue;
-            }
-            for i in 0..3 {
-                tris.push(dedup_corner(&poly.0[i]));
-            }
-        }
-
-        let mut verts: Vec<_> = verts.into_iter().collect();
-        verts.sort_by(|a, b| a.index.cmp(&b.index));
-
-        Self {
-            tris,
-            verts: verts
-                .iter()
-                .map(|f| object.data.position[f.pos].into())
-                .collect(),
-            normals: use_norm.then(|| {
-                verts
-                    .iter()
-                    .map(|f| object.data.normal[f.normal.unwrap()].into())
-                    .collect()
-            }),
-            vert_cols: None,
-            vert_uv: use_uv.then(|| {
-                verts
-                    .iter()
-                    .map(|f| object.data.texture[f.uv.unwrap()].into())
-                    .collect()
-            }),
         }
     }
 }

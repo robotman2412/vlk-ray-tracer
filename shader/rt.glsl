@@ -27,7 +27,7 @@ struct Object {
 
 struct Mesh {
   uint numTris;
-  uint numVerts;
+  uint bvhOffset;
   uint triOffset;
   uint vertOffset;
   uint normOffset;
@@ -42,6 +42,17 @@ struct Skybox {
   vec4 sunColor;
   vec4 sunDirection;
   float sunRadius;
+};
+
+struct Bvh {
+  // Minimum position.
+  vec4 minPos;
+  // Maximum position.
+  vec4 maxPos;
+  // Index of child nodes or vertices.
+  uint children;
+  // Number of vertices; 0 means it has 2 BVH node children.
+  uint triCount;
 };
 
 /* ==== TYPE DEFINITIONS ==== */
@@ -82,6 +93,8 @@ layout(binding = 5, std430) buffer VertBuffer { vec3 verts[]; };
 layout(binding = 6, std430) buffer NormBuffer { vec3 norms[]; };
 layout(binding = 7, std430) buffer VcolBuffer { vec4 vcols[]; };
 // layout(binding = 8, std430) buffer UvBuffer { vec2 uvs[]; };
+layout(binding = 9, std430) buffer BvhBuffer { Bvh bvh[]; };
+
 layout(push_constant, std430) uniform ParamPC {
   mat4 camMatrix;
   float camVFov;
@@ -174,9 +187,9 @@ TriHitInfo rayTestTri(Ray ray, uint tri) {
   hit.tri = tri;
   hit.dist = 1.0 / 0.0;
 
-  vec3 a = verts[tris[tri]];
-  vec3 b = verts[tris[tri + 1]];
-  vec3 c = verts[tris[tri + 2]];
+  vec3 a = verts[tris[tri * 3]];
+  vec3 b = verts[tris[tri * 3 + 1]];
+  vec3 c = verts[tris[tri * 3 + 2]];
 
   vec3 ab = b - a;
   vec3 ac = c - a;
@@ -211,6 +224,64 @@ TriHitInfo rayTestTri(Ray ray, uint tri) {
   }
 }
 
+float rayTestCuboid(Ray ray, vec3 minPos, vec3 maxPos) {
+  vec3 tMin = (minPos - ray.pos) / ray.pos;
+  vec3 tMax = (maxPos - ray.pos) / ray.pos;
+  vec3 t1 = min(tMin, tMax);
+  vec3 t2 = max(tMin, tMax);
+  float tNear = max(max(t1.x, t1.y), t1.z);
+  float tFar = max(max(t2.x, t2.y), t2.z);
+
+  bool hit = tFar >= tNear && tFar > 0;
+  float dst = hit ? max(tNear, 0) : 1.0 / 0.0;
+  return dst;
+}
+
+TriHitInfo rayTestBvh(Ray ray, uint bvhOffset) {
+  TriHitInfo bestHit;
+  bestHit.dist = 1.0 / 0.0;
+
+  uint stack[32];
+  uint stackLen = 1;
+  stack[0] = bvhOffset;
+
+  while (stackLen > 0) {
+    Bvh node = bvh[stack[--stackLen]];
+
+    if (node.triCount != 0) {
+      // Leaf node; test all triangles.
+      for (uint i = 0; i < node.triCount; i++) {
+        TriHitInfo hit = rayTestTri(ray, node.children + i);
+        if (hit.dist < bestHit.dist) {
+          bestHit = hit;
+        }
+      }
+    } else {
+      // Inner node; test both children (if applicable).
+      float dist0 = rayTestCuboid(ray, bvh[node.children].minPos.xyz,
+                                  bvh[node.children].maxPos.xyz);
+      float dist1 = rayTestCuboid(ray, bvh[node.children + 1].minPos.xyz,
+                                  bvh[node.children + 1].maxPos.xyz);
+
+      if (isinf(dist0) && isinf(dist1)) {
+        // Do nothing.
+      } else if (isinf(dist0)) {
+        stack[stackLen++] = node.children + 1;
+      } else if (isinf(dist1)) {
+        stack[stackLen++] = node.children;
+      } else if (dist0 < dist1) {
+        stack[stackLen++] = node.children;
+        stack[stackLen++] = node.children + 1;
+      } else {
+        stack[stackLen++] = node.children + 1;
+        stack[stackLen++] = node.children;
+      }
+    }
+  }
+
+  return bestHit;
+}
+
 HitInfo rayTestMesh(Ray ray, uint obj) {
   Ray globalRay = ray;
   ray.pos = (objects[obj].transform.invMatrix * vec4(ray.pos, 1)).xyz;
@@ -220,11 +291,15 @@ HitInfo rayTestMesh(Ray ray, uint obj) {
   Mesh mesh = meshes[objects[obj].mesh];
 
   TriHitInfo bestHit;
-  bestHit.dist = 1.0 / 0.0;
-  for (uint i = 0; i < mesh.numTris; i++) {
-    TriHitInfo hit = rayTestTri(ray, mesh.triOffset + i * 3);
-    if (hit.dist < bestHit.dist) {
-      bestHit = hit;
+  if (mesh.bvhOffset != uint(-1)) {
+    bestHit = rayTestBvh(ray, mesh.bvhOffset);
+  } else {
+    bestHit.dist = 1.0 / 0.0;
+    for (uint i = 0; i < mesh.numTris; i++) {
+      TriHitInfo hit = rayTestTri(ray, mesh.triOffset + i);
+      if (hit.dist < bestHit.dist) {
+        bestHit = hit;
+      }
     }
   }
 
@@ -236,9 +311,9 @@ HitInfo rayTestMesh(Ray ray, uint obj) {
   hit.pos = ray.pos + bestHit.dist * ray.normal;
   hit.physProp = objects[obj].physProp;
 
-  uint a = tris[bestHit.tri];
-  uint b = tris[bestHit.tri + 1];
-  uint c = tris[bestHit.tri + 2];
+  uint a = tris[bestHit.tri * 3];
+  uint b = tris[bestHit.tri * 3 + 1];
+  uint c = tris[bestHit.tri * 3 + 2];
 
   // Normalization happens later; doing it here is redundant.
   if (mesh.normOffset == uint(-1) || true) {
