@@ -4,6 +4,7 @@ mod scene;
 mod shader_buffer;
 
 use glam::{Mat4, Quat, Vec3};
+use obj::Obj;
 use scene::*;
 use shader_buffer::GpuScene;
 use smallvec::SmallVec;
@@ -631,9 +632,14 @@ impl ApplicationHandler for App {
         create_swapchain(&mut ctx, window_size);
         create_rt_samples(&mut ctx, window_size);
         self.gpu_scene = Some(GpuScene::build(ctx.allocator.clone(), &self.cpu_scene).unwrap());
-        println!("{:#?}", self.gpu_scene);
+        // println!("{:#?}", self.gpu_scene);
 
         self.ctx = Some(ctx);
+        self.window.as_ref().unwrap().set_title(if self.running {
+            "GPU Ray Tracer"
+        } else {
+            "GPU Ray Tracer (paused)"
+        });
     }
 
     fn window_event(
@@ -790,26 +796,20 @@ pub fn main() {
                 ..Default::default()
             },
             Node {
-                transform: Mat4::IDENTITY.into(),
-                model: Model::Mesh(Arc::new(Mesh {
-                    tris: vec![0, 1, 2],
-                    verts: vec![
-                        Vec3::new(0.0, 0.0, 0.3),
-                        Vec3::new(0.5, 0.1, 0.3),
-                        Vec3::new(0.1, 0.5, 0.3),
-                    ],
-                    normals: None,
-                    vert_cols: None,
-                    vert_uv: None,
-                })),
+                transform: Mat4::from_scale_rotation_translation(
+                    Vec3::splat(0.1),
+                    Quat::from_rotation_x(PI),
+                    Vec3::new(0.15, -0.05, 0.4),
+                )
+                .into(),
                 prop: PhysProp {
                     ior: 1.5,
                     opacity: 1.0,
-                    roughness: 1.0,
-                    color: Vec3::new(1.0, 1.0, 1.0),
+                    roughness: 0.5,
+                    color: Vec3::new(0.8, 0.8, 0.8),
                     emission: Vec3::ZERO,
                 },
-                ..Default::default()
+                ..(&Obj::load("suzanne.obj").unwrap()).into()
             },
         ],
         skybox: Default::default(),
@@ -826,7 +826,7 @@ pub fn main() {
         },
         cpu_scene: scene,
         gpu_scene: None,
-        running: true,
+        running: false,
     };
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);

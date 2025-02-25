@@ -183,14 +183,15 @@ impl Mesh {
         let mut dedup_corner = |corner: &IndexTuple| {
             let corner = ObjPolyCorner {
                 pos: corner.0,
-                normal: corner.1,
-                uv: corner.2,
+                uv: corner.1,
+                normal: corner.2,
                 index,
             };
             use_norm |= corner.normal.is_some();
             use_uv |= corner.uv.is_some();
             let existing = verts.get(&corner).map(|f| f.index);
-            existing.unwrap_or({
+            existing.unwrap_or_else(|| {
+                // Lazy-eval insertion so the indices stay correct.
                 verts.insert(corner);
                 index += 1;
                 index - 1
@@ -274,9 +275,31 @@ pub struct Node {
     pub prop: PhysProp,
 }
 
-impl From<Obj> for Node {
-    fn from(value: Obj) -> Self {
-        todo!()
+impl From<&Obj> for Node {
+    fn from(value: &Obj) -> Self {
+        let mut groups = vec![];
+
+        for object in &value.data.objects {
+            groups.extend(object.groups.iter());
+        }
+
+        if groups.len() == 1 {
+            Self {
+                model: Model::Mesh(Arc::new(Mesh::from_group(value, groups[0]))),
+                ..Default::default()
+            }
+        } else {
+            Self {
+                children: groups
+                    .iter()
+                    .map(|group| Self {
+                        model: Model::Mesh(Arc::new(Mesh::from_group(value, group))),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            }
+        }
     }
 }
 

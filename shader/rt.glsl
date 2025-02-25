@@ -233,22 +233,22 @@ HitInfo rayTestMesh(Ray ray, uint obj) {
     hit.dist = 1.0 / 0.0;
     return hit;
   }
-  hit.pos = ray.pos + hit.dist * ray.normal;
+  hit.pos = ray.pos + bestHit.dist * ray.normal;
   hit.physProp = objects[obj].physProp;
 
   uint a = tris[bestHit.tri];
   uint b = tris[bestHit.tri + 1];
   uint c = tris[bestHit.tri + 2];
 
-  if (mesh.normOffset == uint(-1)) {
-    hit.normal = normalize(cross(verts[c] - verts[a], verts[b] - verts[a]));
+  // Normalization happens later; doing it here is redundant.
+  if (mesh.normOffset == uint(-1) || true) {
+    hit.normal = cross(verts[b] - verts[a], verts[c] - verts[a]);
   } else {
     hit.normal = (1 - bestHit.u - bestHit.v) * norms[a];
     hit.normal += bestHit.u * norms[b];
     hit.normal += bestHit.v * norms[c];
-    // Normalization happens later; doing it here is redundant.
   }
-  hit.isEntry = dot(ray.normal, hit.normal) > 0;
+  hit.isEntry = dot(ray.normal, hit.normal) < 0;
 
   if (mesh.vcolOffset != uint(-1)) {
     vec4 vcol;
