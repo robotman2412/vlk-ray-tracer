@@ -634,7 +634,7 @@ impl ApplicationHandler for App {
         create_swapchain(&mut ctx, window_size);
         create_rt_samples(&mut ctx, window_size);
         self.gpu_scene = Some(GpuScene::build(ctx.allocator.clone(), &self.cpu_scene).unwrap());
-        // println!("{:#?}", self.gpu_scene);
+        println!("{:#?}", self.gpu_scene);
 
         self.ctx = Some(ctx);
         self.window.as_ref().unwrap().set_title(if self.running {
@@ -811,11 +811,13 @@ pub fn main() {
                     color: Vec3::new(0.8, 0.8, 0.8),
                     emission: Vec3::ZERO,
                 },
-                ..(&Obj::load("suzanne.obj").unwrap()).into()
+                ..(&Obj::load("ico.obj").unwrap()).into()
             },
         ],
         skybox: Default::default(),
     };
+
+    println!("Scene built");
 
     let mut app = App {
         ctx: None,

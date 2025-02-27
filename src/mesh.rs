@@ -23,7 +23,7 @@ pub struct Bvh {
 }
 
 impl Bvh {
-    pub const MAX_DEPTH: usize = 32;
+    pub const MAX_DEPTH: usize = 1;
     pub const MIN_TRI: usize = 2;
     pub const MAX_SLICES: usize = 5;
 
@@ -116,6 +116,9 @@ impl Bvh {
             if midpoint == None {
                 return false;
             }
+
+            assert!(midpoint.unwrap() > data.begin);
+            assert!(data.end > midpoint.unwrap());
 
             // Triangles re-ordered, the node can now be split.
             self.content = BvhContent::Node((
@@ -362,7 +365,7 @@ impl Mesh {
                     .collect()
             }),
         };
-        // tmp.create_bvh();
+        tmp.create_bvh();
         tmp
     }
 }

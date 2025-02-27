@@ -246,7 +246,8 @@ TriHitInfo rayTestBvh(Ray ray, uint bvhOffset) {
   stack[0] = bvhOffset;
 
   while (stackLen > 0) {
-    Bvh node = bvh[stack[--stackLen]];
+    stackLen--;
+    Bvh node = bvh[stack[stackLen]];
 
     if (node.triCount != 0) {
       // Leaf node; test all triangles.
@@ -263,19 +264,28 @@ TriHitInfo rayTestBvh(Ray ray, uint bvhOffset) {
       float dist1 = rayTestCuboid(ray, bvh[node.children + 1].minPos.xyz,
                                   bvh[node.children + 1].maxPos.xyz);
 
-      if (isinf(dist0) && isinf(dist1)) {
-        // Do nothing.
-      } else if (isinf(dist0)) {
-        stack[stackLen++] = node.children + 1;
-      } else if (isinf(dist1)) {
-        stack[stackLen++] = node.children;
-      } else if (dist0 < dist1) {
-        stack[stackLen++] = node.children;
-        stack[stackLen++] = node.children + 1;
-      } else {
-        stack[stackLen++] = node.children + 1;
-        stack[stackLen++] = node.children;
+      if (!isinf(dist0)) {
+        stack[stackLen] = node.children;
+        stackLen++;
       }
+      if (!isinf(dist1)) {
+        stack[stackLen] = node.children + 1;
+        stackLen++;
+      }
+
+      // if (isinf(dist0) && isinf(dist1)) {
+      //   // Do nothing.
+      // } else if (isinf(dist0)) {
+      //   stack[stackLen++] = node.children + 1;
+      // } else if (isinf(dist1)) {
+      //   stack[stackLen++] = node.children;
+      // } else if (dist0 < dist1) {
+      //   stack[stackLen++] = node.children;
+      //   stack[stackLen++] = node.children + 1;
+      // } else {
+      //   stack[stackLen++] = node.children + 1;
+      //   stack[stackLen++] = node.children;
+      // }
     }
   }
 

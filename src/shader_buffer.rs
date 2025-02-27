@@ -186,6 +186,8 @@ pub struct GpuMesh {
     /// UV coordinates are a vec2.
     pub uv_offset: u32,
 }
+unsafe impl Send for GpuMesh {}
+unsafe impl Sync for GpuMesh {}
 
 /// On-GPU representation of a BVH.
 #[repr(C)]
@@ -200,6 +202,8 @@ pub struct GpuBvh {
     /// Number of vertices; 0 means it has 2 BVH node children.
     pub tri_count: u32,
 }
+unsafe impl Send for GpuBvh {}
+unsafe impl Sync for GpuBvh {}
 
 /// On-GPU representation of a scene.
 /// Unlike the others, this is not a single bufferable object, but a collection of buffers.
@@ -262,8 +266,9 @@ impl GpuScene {
                     tri_count: 0,
                 });
                 out.bvh[index].children = index as u32 + 1;
-                Self::build_bvh(out, &val.0, out.bvh.len() - 2, tri_offset);
-                Self::build_bvh(out, &val.1, out.bvh.len() - 1, tri_offset);
+                let child_index = out.bvh.len() - 2;
+                Self::build_bvh(out, &val.0, child_index, tri_offset);
+                Self::build_bvh(out, &val.1, child_index + 1, tri_offset);
             }
             BvhContent::Leaf(leaf) => {
                 out.bvh[index].children = leaf.begin as u32 + tri_offset;
@@ -298,7 +303,9 @@ impl GpuScene {
                 children: 0,
                 tri_count: 0,
             });
+            println!("Converting BVH to GPU format...");
             Self::build_bvh(out, bvh, out.bvh.len() - 1, gpu_mesh.tri_offset);
+            println!("Done! Created {} entries", out.bvh.len());
         }
         if let Some(normals) = mesh.normals.as_ref() {
             gpu_mesh.norm_offset = out.norms.len() as u32;
