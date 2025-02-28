@@ -265,8 +265,8 @@ impl GpuScene {
                     children: 0,
                     tri_count: 0,
                 });
-                out.bvh[index].children = index as u32 + 1;
                 let child_index = out.bvh.len() - 2;
+                out.bvh[index].children = child_index as u32;
                 Self::build_bvh(out, &val.0, child_index, tri_offset);
                 Self::build_bvh(out, &val.1, child_index + 1, tri_offset);
             }

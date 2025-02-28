@@ -23,7 +23,7 @@ pub struct Bvh {
 }
 
 impl Bvh {
-    pub const MAX_DEPTH: usize = 1;
+    pub const MAX_DEPTH: usize = 31;
     pub const MIN_TRI: usize = 2;
     pub const MAX_SLICES: usize = 5;
 

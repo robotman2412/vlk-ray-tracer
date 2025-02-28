@@ -53,6 +53,8 @@ struct Bvh {
   uint children;
   // Number of vertices; 0 means it has 2 BVH node children.
   uint triCount;
+  uint _padding0;
+  uint _padding1;
 };
 
 /* ==== TYPE DEFINITIONS ==== */
@@ -100,6 +102,7 @@ layout(push_constant, std430) uniform ParamPC {
   float camVFov;
   uint frameCounter;
   uint maxBounce;
+  uint rayCount;
   uint objectCount;
 };
 
@@ -225,14 +228,15 @@ TriHitInfo rayTestTri(Ray ray, uint tri) {
 }
 
 float rayTestCuboid(Ray ray, vec3 minPos, vec3 maxPos) {
-  vec3 tMin = (minPos - ray.pos) / ray.pos;
-  vec3 tMax = (maxPos - ray.pos) / ray.pos;
+  vec3 invDir = 1 / ray.normal;
+  vec3 tMin = (minPos - ray.pos) * invDir;
+  vec3 tMax = (maxPos - ray.pos) * invDir;
   vec3 t1 = min(tMin, tMax);
   vec3 t2 = max(tMin, tMax);
   float tNear = max(max(t1.x, t1.y), t1.z);
-  float tFar = max(max(t2.x, t2.y), t2.z);
+  float tFar = min(min(t2.x, t2.y), t2.z);
 
-  bool hit = tFar >= tNear && tFar > 0;
+  bool hit = tFar >= tNear && tFar >= 0;
   float dst = hit ? max(tNear, 0) : 1.0 / 0.0;
   return dst;
 }
@@ -326,7 +330,7 @@ HitInfo rayTestMesh(Ray ray, uint obj) {
   uint c = tris[bestHit.tri * 3 + 2];
 
   // Normalization happens later; doing it here is redundant.
-  if (mesh.normOffset == uint(-1) || true) {
+  if (mesh.normOffset == uint(-1)) {
     hit.normal = cross(verts[b] - verts[a], verts[c] - verts[a]);
   } else {
     hit.normal = (1 - bestHit.u - bestHit.v) * norms[a];
@@ -509,7 +513,11 @@ void main() {
       (camMatrix * (vec4(pixelCoordsf, dist, 0) - 0.5 * vec4(imgSize, 0, 0)))
           .xyz);
 
-  vec4 color = vec4(rayTrace(ray, rngState));
+  vec4 color = vec4(0);
+  for (uint i = 0; i < rayCount; i++) {
+    color += vec4(rayTrace(ray, rngState));
+  }
+  color /= float(rayCount);
 
   // The fourth channel is for debug info and is not accumulated.
   prevColor.w = 0;

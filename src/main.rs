@@ -88,6 +88,8 @@ struct RtParams {
     frame_counter: u32,
     /// Max. number of bounces.
     max_bounce: u32,
+    /// How many rays to cast per sample.
+    ray_count: u32,
 }
 
 /// Load a SPIR-V shader from a file.
@@ -811,7 +813,7 @@ pub fn main() {
                     color: Vec3::new(0.8, 0.8, 0.8),
                     emission: Vec3::ZERO,
                 },
-                ..(&Obj::load("ico.obj").unwrap()).into()
+                ..(&Obj::load("suzanne2.obj").unwrap()).into()
             },
         ],
         skybox: Default::default(),
@@ -826,6 +828,7 @@ pub fn main() {
             cam_matrix: Mat4::IDENTITY.to_cols_array(),
             cam_v_fov: (PI * 0.25).tan(),
             frame_counter: 0,
+            ray_count: 4,
             max_bounce: 16,
         },
         cpu_scene: scene,
